@@ -1,0 +1,4 @@
+# Optional: export metrics, logs and traces with OpenTelemetry (see README, "Observability").
+# The simulator runs without these; ach_sim/telemetry.py turns every call into a no-op.
+opentelemetry-sdk>=1.45
+opentelemetry-exporter-otlp-proto-http>=1.45

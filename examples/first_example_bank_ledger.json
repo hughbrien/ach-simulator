@@ -1,0 +1,5 @@
+{
+  "70001111": {"holder": "KIM NGUYEN", "status": "open", "type": "checking", "balance": 1520000},
+  "70002222": {"holder": "LUIS ORTEGA", "status": "open", "type": "savings", "balance": 80000},
+  "70005000": {"holder": "HARBORVIEW CLINIC OPERATING", "status": "open", "type": "checking", "balance": 500000}
+}

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACH Simulator Dashboard</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --accent: #2f5bd3; --sel: #eaf0ff;
+    --post: #16794a; --post-bg: #e3f4ea; --ret: #b42318; --ret-bg: #fde8e6;
+    --noc: #9a5b00; --noc-bg: #fdf0d9; --info: #475467; --info-bg: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11141a; --panel: #1a1f27; --text: #e6e9ef; --muted: #98a2b3; --line: #2b323d;
+      --accent: #7ea2ff; --sel: #22304d;
+      --post: #5fd39a; --post-bg: #173326; --ret: #ff8a7f; --ret-bg: #3d1d1b;
+      --noc: #f4bd5c; --noc-bg: #3a2c12; --info: #b5bfcc; --info-bg: #262d38;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: baseline; gap: 16px; padding: 14px 20px;
+           border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 17px; margin: 0; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  header label { margin-left: auto; color: var(--muted); font-size: 12px; }
+  main { padding: 16px 20px; display: grid; gap: 16px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .stat .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .k { color: var(--muted); font-size: 12px; }
+  .stat.ret .v { color: var(--ret); } .stat.noc .v { color: var(--noc); } .stat.post .v { color: var(--post); }
+  .cols { display: grid; grid-template-columns: minmax(320px, 2fr) 3fr; gap: 16px; align-items: start; }
+  @media (max-width: 1000px) { .cols { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+              margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--line);
+              display: flex; align-items: center; gap: 8px; }
+  .panel h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; }
+  .scroll { max-height: 520px; overflow: auto; }
+  .file { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .file:hover { background: var(--bg); }
+  .file.sel { background: var(--sel); }
+  .file .top { display: flex; gap: 8px; align-items: center; }
+  .file .id { font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
+  .file .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .file .err { color: var(--ret); font-size: 12px; margin-top: 4px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px;
+          font-weight: 600; white-space: nowrap; }
+  .pill.post, .pill.accepted { color: var(--post); background: var(--post-bg); }
+  .pill.return, .pill.rejected { color: var(--ret); background: var(--ret-bg); }
+  .pill.noc { color: var(--noc); background: var(--noc-bg); }
+  .pill.info { color: var(--info); background: var(--info-bg); }
+  .grow { margin-left: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; background: var(--bg); position: sticky; top: 0; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.mono, .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  td .pill { margin: 0 4px 2px 0; }
+  .batch-h { padding: 10px 14px 6px; font-weight: 600; }
+  .batch-h span { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  .empty { padding: 24px 14px; color: var(--muted); text-align: center; }
+  pre { margin: 0; padding: 12px 14px; font: 12px/1.4 ui-monospace, Menlo, monospace;
+        overflow: auto; max-height: 420px; background: var(--bg); }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button, .btn { border: 1px solid var(--line); background: var(--panel); color: var(--text);
+                       padding: 4px 10px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; }
+  .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  select { font: inherit; font-size: 12px; background: var(--panel); color: var(--text);
+           border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+  .boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 12px; }
+  .box { border: 1px solid var(--line); border-radius: 8px; }
+  .box h3 { margin: 0; padding: 8px 12px; font-size: 13px; border-bottom: 1px solid var(--line); }
+  .box h3 span { color: var(--muted); font-weight: 400; }
+  .box ul { list-style: none; margin: 0; padding: 4px 0; }
+  .box li { padding: 3px 12px; font: 12px ui-monospace, Menlo, monospace; cursor: pointer; }
+  .box li:hover { background: var(--bg); }
+  .box li.done { color: var(--muted); }
+  .box .lbl { padding: 6px 12px 0; font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .ev-detail { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ACH Simulator</h1>
+  <span class="meta" id="meta">connecting…</span>
+  <label><input type="checkbox" id="live" checked> live refresh</label>
+</header>
+<main>
+  <section class="stats" id="stats"></section>
+
+  <section class="cols">
+    <div class="panel">
+      <h2>Submitted files <span class="right" id="file-count"></span></h2>
+      <div class="scroll" id="files"></div>
+    </div>
+    <div class="panel">
+      <h2><span id="detail-title">Details</span>
+        <span class="right tabs" id="detail-tabs"></span></h2>
+      <div id="detail"><div class="empty">Select a file to see its entries and what happened to each one.</div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>
+      <span class="tabs"><button id="tab-events" class="on">Event log</button><button id="tab-mail">Mailboxes</button></span>
+      <span class="right"><select id="ev-filter"><option value="">all events</option></select></span>
+    </h2>
+    <div id="bottom"></div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money = (c) => (c / 100).toLocaleString("en-US", {style: "currency", currency: "USD"});
+const simTime = (t) => t ? t.replace("T", " ").replace(/:00([+-]\d\d:\d\d)$/, " $1") : "";
+
+let state = null, selected = null, detailView = "entries", bottomTab = "events", lastSig = "";
+
+async function getJSON(url) {
+  const r = await fetch(url, {cache: "no-store"});
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+async function refresh() {
+  try {
+    state = await getJSON("/api/state");
+  } catch (e) {
+    $("#meta").textContent = "dashboard server unreachable";
+    return;
+  }
+  const sig = state.events.length + ":" + (state.events[0]?.ts || "") + ":" + state.files.length;
+  $("#meta").textContent = `watching ${state.data_dir} · updated ${new Date().toLocaleTimeString()}`;
+  if (sig === lastSig) return;
+  lastSig = sig;
+  renderStats(); renderFiles(); renderBottom();
+  if (selected?.type === "file") loadFile(selected.id, true);
+}
+
+function renderStats() {
+  const s = state.stats;
+  const tiles = [
+    ["Files accepted", s.accepted], ["Files rejected", s.rejected, s.rejected ? "ret" : ""],
+    ["Entries forwarded", s.forwarded], ["Posted", s.posted, "post"],
+    ["Returns", s.returns, "ret"], ["NOCs", s.nocs, "noc"],
+    ["Credits", money(s.credit_cents)], ["Debits", money(s.debit_cents)],
+  ];
+  $("#stats").innerHTML = tiles.map(([k, v, c]) =>
+    `<div class="stat ${c || ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+}
+
+function renderFiles() {
+  $("#file-count").textContent = state.files.length ? `${state.files.length}` : "";
+  if (!state.files.length) {
+    $("#files").innerHTML = `<div class="empty">No files yet. Start the operator and send a file, or run <span class="mono">python3 run_demo.py</span>.</div>`;
+    return;
+  }
+  $("#files").innerHTML = state.files.map((f) => {
+    const sel = selected?.type === "file" && selected.id === f.file_id ? " sel" : "";
+    let sub = `${esc(f.submitter)} · sim ${esc(simTime(f.sim_time))}`;
+    let extra = "";
+    if (f.status === "accepted") {
+      const windows = [...new Set(f.batches.map((b) => b.window))].join(", ");
+      sub += `<br>${f.entries} ${f.entries === 1 ? "entry" : "entries"} · Cr ${money(f.credit_cents)} · Dr ${money(f.debit_cents)} · ${esc(windows)}`;
+      if (f.returns) extra += `<span class="pill return">${f.returns} return${f.returns > 1 ? "s" : ""}</span> `;
+      if (f.nocs) extra += `<span class="pill noc">${f.nocs} NOC${f.nocs > 1 ? "s" : ""}</span> `;
+      for (const w of f.warnings || []) sub += `<div class="err" style="color:var(--noc)">⚠ ${esc(w)}</div>`;
+    } else {
+      sub += (f.errors || []).map((e) => `<div class="err">${esc(e)}</div>`).join("");
+    }
+    return `<div class="file${sel}" data-id="${esc(f.file_id)}">
+      <div class="top"><span class="id">${esc(f.file_id)}</span><span class="pill ${f.status}">${f.status}</span>
+      <span class="grow">${extra}</span></div><div class="sub">${sub}</div></div>`;
+  }).join("");
+  document.querySelectorAll(".file").forEach((el) => el.onclick = () => {
+    selected = {type: "file", id: el.dataset.id}; detailView = "entries"; renderFiles(); loadFile(el.dataset.id);
+  });
+}
+
+function setTabs(views) {
+  $("#detail-tabs").innerHTML = views.map(([v, label]) =>
+    `<button data-v="${v}" class="${v === detailView ? "on" : ""}">${label}</button>`).join("");
+  document.querySelectorAll("#detail-tabs button").forEach((b) => b.onclick = () => {
+    detailView = b.dataset.v; renderDetail();
+  });
+}
+
+let detail = null;
+async function loadFile(id, quiet) {
+  try { detail = {type: "file", data: await getJSON(`/api/file/${encodeURIComponent(id)}`)}; }
+  catch { if (!quiet) $("#detail").innerHTML = `<div class="empty">Could not load ${esc(id)}.</div>`; return; }
+  renderDetail();
+}
+async function loadMailbox(rt, name, picked) {
+  selected = {type: "mail"}; detailView = "describe"; renderFiles();
+  try { detail = {type: "mail", rt, data: await getJSON(`/api/mailbox/${rt}/${encodeURIComponent(name)}${picked ? "?picked_up=1" : ""}`)}; }
+  catch { $("#detail").innerHTML = `<div class="empty">Could not load ${esc(name)}.</div>`; return; }
+  renderDetail();
+}
+
+function renderDetail() {
+  if (!detail) return;
+  const d = detail.data;
+  if (detail.type === "mail") {
+    $("#detail-title").textContent = d.name;
+    setTabs([["describe", "Decoded"], ["raw", "Raw"]]);
+    $("#detail").innerHTML = `<pre>${esc(detailView === "raw" ? d.raw : d.describe)}</pre>`;
+    return;
+  }
+  $("#detail-title").textContent = d.file_id;
+  setTabs([["entries", "Entries"], ["describe", "Decoded"], ["raw", "Raw"]]);
+  if (detailView !== "entries") {
+    $("#detail").innerHTML = `<pre>${esc(detailView === "raw" ? d.raw : d.describe)}</pre>`;
+    return;
+  }
+  if (!d.batches.length) {
+    const errs = d.event.errors || [];
+    $("#detail").innerHTML = `<div class="empty">File could not be parsed.${errs.map((e) => `<div class="err">${esc(e)}</div>`).join("")}</div>`;
+    return;
+  }
+  const settle = Object.fromEntries((d.event.batches_detail || []).map((b) => [b.batch, b]));
+  $("#detail").innerHTML = `<div class="scroll">` + d.batches.map((b) => {
+    const s = settle[b.batch];
+    const when = s ? ` · settles ${esc(s.settlement_date)} (${esc(s.window)})` : "";
+    const rows = b.entries.map((e) => {
+      const outs = e.outcomes.length ? e.outcomes.map((o) => `<span class="pill ${o.kind}">${esc(o.text)}</span>`).join("")
+        : (d.event.event === "file_rejected" ? `<span class="pill rejected">file rejected</span>` : "");
+      return `<tr><td class="mono">${esc(e.trace)}</td>
+        <td title="${esc(e.tx_desc)}">${esc(e.tx)}</td>
+        <td>${esc(e.name)}<div class="ev-detail">${esc(e.rdfi)} · ${esc(e.account)}${e.addenda ? " · " + esc(e.addenda) : ""}</div></td>
+        <td class="num">${e.credit ? "" : "−"}${money(e.amount_cents)}</td><td>${outs}</td></tr>`;
+    }).join("");
+    return `<div class="batch-h">Batch ${b.batch} · ${esc(b.sec)} · ${esc(b.company)}
+      <span>${esc(b.description)} · effective ${esc(b.effective_date)}${when}</span></div>
+      <table><thead><tr><th>Trace</th><th>Tx</th><th>Receiver</th><th style="text-align:right">Amount</th><th>Outcome</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  }).join("") + `</div>`;
+}
+
+function eventSummary(ev) {
+  const skip = new Set(["ts", "event", "batches_detail", "traces", "items", "errors", "warnings", "trace_id", "span_id"]);
+  const parts = Object.entries(ev).filter(([k, v]) => !skip.has(k) && v !== "" && v != null)
+    .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`);
+  if (ev.traces) parts.push(`${ev.traces.length} entries`);
+  if (ev.items) parts.push(ev.items.map((i) => `${i.code}←${i.original_trace}`).join(", "));
+  if (ev.errors?.length) parts.push(ev.errors.join("; "));
+  return parts.join("  ");
+}
+
+function renderBottom() {
+  $("#tab-events").classList.toggle("on", bottomTab === "events");
+  $("#tab-mail").classList.toggle("on", bottomTab === "mail");
+  $("#ev-filter").style.display = bottomTab === "events" ? "" : "none";
+  if (bottomTab === "events") {
+    const sel = $("#ev-filter"), cur = sel.value;
+    const kinds = [...new Set(state.events.map((e) => e.event))].sort();
+    sel.innerHTML = `<option value="">all events</option>` + kinds.map((k) => `<option ${k === cur ? "selected" : ""}>${esc(k)}</option>`).join("");
+    const evs = state.events.filter((e) => !cur || e.event === cur);
+    $("#bottom").innerHTML = evs.length ? `<div class="scroll"><table><thead><tr><th>Logged (UTC)</th><th>Event</th><th>Details</th></tr></thead><tbody>` +
+      evs.map((e) => {
+        const k = e.event === "file_rejected" || e.event === "operator_return" ? "return"
+          : e.event === "file_accepted" ? "post" : e.event === "rdfi_decision"
+          ? (e.outcome.startsWith("posted") ? "post" : e.outcome.startsWith("NOC") ? "noc" : "return") : "info";
+        return `<tr><td class="mono">${esc(e.ts.replace("T", " ").replace("+00:00", ""))}</td>
+          <td><span class="pill ${k}" title="${e.trace_id ? "trace " + esc(e.trace_id) : ""}">${esc(e.event)}</span></td><td class="ev-detail mono">${esc(eventSummary(e))}</td></tr>`;
+      }).join("") + `</tbody></table></div>` : `<div class="empty">No events yet.</div>`;
+  } else {
+    $("#bottom").innerHTML = `<div class="boxes">` + state.mailboxes.map((m) => {
+      const li = (n, picked) => `<li class="${picked ? "done" : ""}" data-rt="${m.routing}" data-n="${esc(n)}" data-p="${picked ? 1 : ""}">${esc(n)}</li>`;
+      return `<div class="box"><h3>${esc(m.name)} <span>${m.routing} · ${m.mode === "auto" ? "simulated RDFI" : "pulls its own mailbox"}</span></h3>
+        <div class="lbl">Waiting (${m.waiting.length})</div><ul>${m.waiting.map((n) => li(n, false)).join("") || "<li class='done'>empty</li>"}</ul>
+        <div class="lbl">Picked up (${m.picked_up.length})</div><ul>${m.picked_up.map((n) => li(n, true)).join("") || "<li class='done'>none</li>"}</ul></div>`;
+    }).join("") + `</div>`;
+    document.querySelectorAll(".box li[data-n]").forEach((el) =>
+      el.onclick = () => loadMailbox(el.dataset.rt, el.dataset.n, !!el.dataset.p));
+  }
+}
+
+$("#tab-events").onclick = () => { bottomTab = "events"; renderBottom(); };
+$("#tab-mail").onclick = () => { bottomTab = "mail"; renderBottom(); };
+$("#ev-filter").onchange = renderBottom;
+refresh();
+setInterval(() => { if ($("#live").checked) refresh(); }, 2000);
+</script>
+</body>
+</html>
