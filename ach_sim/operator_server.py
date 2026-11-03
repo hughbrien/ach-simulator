@@ -48,8 +48,8 @@ SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 SUBMIT_REASONS = {200: "accepted", 401: "unknown_api_key", 403: "origin_mismatch",
                   409: "duplicate", 422: "failed_edits", 503: "dependency_unavailable"}
 # Event fields echoed into the log message; the full event goes in the log attributes.
-EVENT_LOG_KEYS = ("file_id", "submitter", "rdfi", "bank", "to", "trace", "outcome", "code",
-                  "mailbox_file", "errors")
+EVENT_LOG_KEYS = ("file_id", "step", "status", "duration_ms", "reason", "error", "submitter",
+                  "rdfi", "bank", "to", "trace", "outcome", "code", "mailbox_file", "errors")
 log = logging.getLogger("ach_sim.operator")
 
 
@@ -87,24 +87,47 @@ class Operator:
         self.out_counter = max((int(m.group(1)) for m in (
             re.match(r"\d{8}T\d{4}_(\d+)_", p.name)
             for p in (self.data / "mailbox").glob("*/**/*.ach")) if m), default=0)
+        # mailbox file name -> submitted file it came from (for mailbox pickup steps)
+        self.mailbox_source = {}
+        if self.events_path.exists():
+            for ln in self.events_path.read_text().splitlines():
+                try:
+                    ev = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if ev.get("mailbox_file") and ev.get("event") in ("entries_forwarded",
+                                                                   "returns_delivered"):
+                    self.mailbox_source[ev["mailbox_file"]] = ev.get("file_id", "")
 
     # -- helpers ------------------------------------------------------------
+    def step(self, file_id: str, name: str, **kwargs):
+        """One processing step of a file: span + step metrics (telemetry.step) and a
+        `file_step` event (which is also logged), all sharing the step's span ID."""
+        def on_end(st):
+            self.event("file_step", file_id=file_id, step=name, status=st.status,
+                       duration_ms=round(st.duration * 1000, 3), **st.detail)
+        attrs = {"ach.file.id": file_id, **kwargs.pop("attrs", {})}
+        return telemetry.step(name, on_end=on_end, **attrs, **kwargs)
+
     def event(self, kind: str, **details):
         rec = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                "event": kind, **details, **telemetry.current_ids()}
         with self.events_path.open("a") as fh:
             fh.write(json.dumps(rec) + "\n")
         brief = " ".join(f"{k}={details[k]}" for k in EVENT_LOG_KEYS if k in details)
-        log.log(logging.WARNING if kind in ("file_rejected", "rdfi_unavailable")
-                else logging.INFO, "%s %s", kind, brief,
+        level = (logging.ERROR if details.get("status") == "error"
+                 else logging.WARNING if kind in ("file_rejected", "rdfi_unavailable")
+                 or details.get("status") == "rejected" else logging.INFO)
+        log.log(level, "%s %s", kind, brief,
                 extra={"attrs": {"ach.event": kind,
                                  **{f"ach.{k}": v for k, v in details.items()}}})
         return rec
 
-    def deliver(self, rt: str, f: nacha.AchFile, label: str) -> str:
+    def deliver(self, rt: str, f: nacha.AchFile, label: str, file_id: str = "") -> str:
         self.out_counter += 1
         f.file_id_modifier = MODIFIERS[self.out_counter % len(MODIFIERS)]
         name = f"{f.created:%Y%m%dT%H%M}_{self.out_counter:05d}_{label}.ach"
+        self.mailbox_source[name] = file_id
         (self.data / "mailbox" / rt / name).write_text(f.to_text())
         telemetry.MAILBOX_OPS.add(1, {"ach.operation": "deliver", "ach.bank.name": bank_name(rt)})
         return name
@@ -159,11 +182,11 @@ class Operator:
             return code, resp
 
     def _submit(self, text: str, caller: str, now: datetime):
-        """Edit, settle and route one file. Returns (status, body, dispatch) where
-        dispatch lists (rdfi, file_id, forwarded text) for the simulated RDFIs."""
+        """Edit, settle and route one file, one recorded step at a time. Returns
+        (status, body, dispatch) where dispatch lists (rdfi, file_id, forwarded text)
+        for the simulated RDFIs."""
         self.counter += 1
         file_id = f"F{now:%Y%m%d}-{self.counter:04d}"
-        (self.data / "received" / f"{file_id}.ach").write_text(text)
 
         def reject(status, errs, warnings=None):
             self.event("file_rejected", file_id=file_id, submitter=caller,
@@ -174,60 +197,86 @@ class Operator:
                 body["warnings"] = warnings
             return status, body, []
 
-        try:
-            res = self._downstream("validation service", "POST",
-                                   f"{self.validation_url}/v1/validate", body=text)
-        except DependencyError as exc:
-            return reject(503, [str(exc)])
-        if not res["ok"]:
-            return reject(422, res["errors"], res["warnings"])
-        f = nacha.parse(text)
-        if f.immediate_origin != caller:
-            return reject(403, [f"immediate origin {f.immediate_origin} does not match the "
-                                f"authenticated bank {caller}"])
-        if f.immediate_destination != OPERATOR_ROUTING:
-            return reject(422, [f"immediate destination must be the operator ({OPERATOR_ROUTING})"])
-        if f.file_key in self.seen_keys:
-            return reject(409, [f"duplicate file: {f.file_key} (same origin, creation date/time "
-                                "and file ID modifier) was already accepted"])
+        with self.step(file_id, "receive", **{"ach.submitter.routing": caller}) as st:
+            (self.data / "received" / f"{file_id}.ach").write_text(text)
+            st.detail.update(submitter=caller, bytes=len(text))
+
+        with self.step(file_id, "validate", **{"peer.service": "ach-validation"}) as st:
+            try:
+                res = self._downstream("validation service", "POST",
+                                       f"{self.validation_url}/v1/validate", body=text)
+            except DependencyError as exc:
+                st.fail(exc)
+                return reject(503, [str(exc)])
+            st.detail.update(errors=len(res["errors"]), warnings=len(res["warnings"]))
+            if not res["ok"]:
+                st.reject("failed_edits", first_error=res["errors"][0])
+                return reject(422, res["errors"], res["warnings"])
+
+        with self.step(file_id, "origin_check") as st:
+            f = nacha.parse(text)
+            st.detail.update(origin=f.immediate_origin, destination=f.immediate_destination)
+            if f.immediate_origin != caller:
+                st.reject("origin_mismatch")
+                return reject(403, [f"immediate origin {f.immediate_origin} does not match "
+                                    f"the authenticated bank {caller}"])
+            if f.immediate_destination != OPERATOR_ROUTING:
+                st.reject("wrong_destination")
+                return reject(422, [f"immediate destination must be the operator "
+                                    f"({OPERATOR_ROUTING})"])
+
+        with self.step(file_id, "duplicate_check") as st:
+            st.detail["key"] = f.file_key
+            if f.file_key in self.seen_keys:
+                st.reject("duplicate")
+                return reject(409, [f"duplicate file: {f.file_key} (same origin, creation "
+                                    "date/time and file ID modifier) was already accepted"])
 
         # Settlement date and window per batch, from the settlement service
         eligible = {b.batch_number: all(e.amount <= nacha.SAME_DAY_LIMIT_CENTS
                                         for e in b.entries) for b in f.batches}
-        try:
-            settled = self._downstream("settlement service", "POST",
-                                       f"{self.settlement_url}/v1/settle", json_body={
-                                           "submitted_at": now.isoformat(),
-                                           "batches": [{"batch": b.batch_number,
-                                                        "effective_date": b.effective_date,
-                                                        "same_day_eligible":
-                                                            eligible[b.batch_number]}
-                                                       for b in f.batches]})
-        except DependencyError as exc:
-            return reject(503, [str(exc)])
-        self.seen_keys.add(f.file_key)
-        windows = {x["batch"]: x for x in settled["batches"]}
-        batch_info = []
-        for b in f.batches:
-            w = windows[b.batch_number]
-            b.settlement_date = nacha.julian_day(
-                datetime.fromisoformat(w["settlement_date"]).date())
-            d, c = b.totals()
-            batch_info.append({"batch": b.batch_number, "sec": b.sec_code,
-                               "company": b.company_name, "entries": len(b.entries),
-                               "debit_cents": d, "credit_cents": c,
-                               "effective_date": b.effective_date,
-                               "settlement_date": w["settlement_date"], "window": w["window"],
-                               "same_day_eligible": eligible[b.batch_number]})
-            for direction, cents in (("debit", d), ("credit", c)):
-                if cents:
-                    telemetry.AMOUNT.add(cents / 100, {"ach.sec": b.sec_code,
-                                                       "ach.direction": direction,
-                                                       "ach.window": w["window"]})
+        with self.step(file_id, "settle", **{"peer.service": "ach-settlement"}) as st:
+            try:
+                settled = self._downstream(
+                    "settlement service", "POST", f"{self.settlement_url}/v1/settle",
+                    json_body={"submitted_at": now.isoformat(),
+                               "batches": [{"batch": b.batch_number,
+                                            "effective_date": b.effective_date,
+                                            "same_day_eligible": eligible[b.batch_number]}
+                                           for b in f.batches]})
+            except DependencyError as exc:
+                st.fail(exc)
+                return reject(503, [str(exc)])
+            st.detail.update(batches=len(settled["batches"]),
+                             windows=sorted({x["window"] for x in settled["batches"]}))
 
-        self.event("file_accepted", file_id=file_id, submitter=caller, key=f.file_key,
-                   sim_time=now.isoformat(),
-                   **f.summary(), batches_detail=batch_info, warnings=res["warnings"])
+        with self.step(file_id, "accept") as st:
+            self.seen_keys.add(f.file_key)
+            windows = {x["batch"]: x for x in settled["batches"]}
+            batch_info = []
+            for b in f.batches:
+                w = windows[b.batch_number]
+                b.settlement_date = nacha.julian_day(
+                    datetime.fromisoformat(w["settlement_date"]).date())
+                d, c = b.totals()
+                batch_info.append({"batch": b.batch_number, "sec": b.sec_code,
+                                   "company": b.company_name, "entries": len(b.entries),
+                                   "debit_cents": d, "credit_cents": c,
+                                   "effective_date": b.effective_date,
+                                   "settlement_date": w["settlement_date"], "window": w["window"],
+                                   "same_day_eligible": eligible[b.batch_number]})
+                for direction, cents in (("debit", d), ("credit", c)):
+                    if cents:
+                        telemetry.AMOUNT.add(cents / 100, {"ach.sec": b.sec_code,
+                                                           "ach.direction": direction,
+                                                           "ach.window": w["window"]})
+            summary = f.summary()
+            self.event("file_accepted", file_id=file_id, submitter=caller, key=f.file_key,
+                       sim_time=now.isoformat(),
+                       **summary, batches_detail=batch_info, warnings=res["warnings"])
+            st.detail.update(entries=summary["entries"],
+                             debit_cents=summary["total_debit_cents"],
+                             credit_cents=summary["total_credit_cents"])
 
         # Route entries to RDFIs
         per_rdfi: dict = {}
@@ -242,10 +291,11 @@ class Operator:
         delivered, dispatch = [], []
         for rt, groups in per_rdfi.items():
             n_entries = sum(len(x[1]) for x in groups.values())
-            with telemetry.span("ach.rdfi.route", **{
-                    "ach.file.id": file_id, "ach.rdfi.routing": rt,
-                    "ach.rdfi.name": bank_name(rt), "ach.rdfi.mode": PARTICIPANTS[rt]["mode"],
-                    "ach.entries": n_entries}) as rs:
+            with self.step(file_id, "route", span_name="ach.rdfi.route",
+                           metric_attrs={"ach.rdfi.name": bank_name(rt)}, **{
+                               "ach.rdfi.routing": rt, "ach.rdfi.name": bank_name(rt),
+                               "ach.rdfi.mode": PARTICIPANTS[rt]["mode"],
+                               "ach.entries": n_entries}) as st:
                 out = nacha.AchFile(immediate_destination=rt, immediate_origin=OPERATOR_ROUTING,
                                     destination_name=PARTICIPANTS[rt]["name"],
                                     origin_name=OPERATOR_NAME, created=now.astimezone(ET))
@@ -259,8 +309,9 @@ class Operator:
                                        discretionary=b.discretionary,
                                        settlement_date=b.settlement_date)
                     nb.entries = list(entries)
-                name = self.deliver(rt, out, f"from_{caller}")
-                rs.set_attribute("ach.mailbox.file", name)
+                name = self.deliver(rt, out, f"from_{caller}", file_id)
+                st.detail.update(rdfi=rt, entries=n_entries, mailbox_file=name,
+                                 mode=PARTICIPANTS[rt]["mode"])
                 delivered.append({"rdfi": rt, "mailbox_file": name, "entries": n_entries})
                 telemetry.ENTRIES_FORWARDED.add(n_entries, {"ach.rdfi.name": bank_name(rt)})
                 self.event("entries_forwarded", file_id=file_id, rdfi=rt, mailbox_file=name,
@@ -270,22 +321,25 @@ class Operator:
 
         # Entries for banks outside the network come back from the operator as R13.
         if r13:
-            odfi = r13[0][0].odfi_routing
-            dest = odfi if odfi in PARTICIPANTS else caller
-            for b, e, kind, code, data in r13:
-                telemetry.ENTRY_OUTCOMES.add(1, {"ach.rdfi.name": OPERATOR_NAME,
-                                                 "ach.outcome": kind, "ach.code": code,
-                                                 "ach.sec": b.sec_code})
-                self.event("operator_return", file_id=file_id, trace=e.trace_number, code=code)
-            rf = rdfi.build_response_file(
-                r13, rdfi_routing=OPERATOR_ROUTING, origin=OPERATOR_ROUTING,
-                origin_name=OPERATOR_NAME, destination=dest,
-                destination_name=PARTICIPANTS[dest]["name"], created=now.astimezone(ET))
-            name = self.deliver(dest, rf, f"returns_from_{OPERATOR_ROUTING}")
-            self.event("returns_delivered", file_id=file_id, to=dest, from_rdfi=OPERATOR_ROUTING,
-                       mailbox_file=name,
-                       items=[{"original_trace": e.trace_number, "code": code}
-                              for _, e, _, code, _ in r13])
+            with self.step(file_id, "operator_returns") as st:
+                odfi = r13[0][0].odfi_routing
+                dest = odfi if odfi in PARTICIPANTS else caller
+                for b, e, kind, code, data in r13:
+                    telemetry.ENTRY_OUTCOMES.add(1, {"ach.rdfi.name": OPERATOR_NAME,
+                                                     "ach.outcome": kind, "ach.code": code,
+                                                     "ach.sec": b.sec_code})
+                    self.event("operator_return", file_id=file_id, trace=e.trace_number,
+                               code=code)
+                rf = rdfi.build_response_file(
+                    r13, rdfi_routing=OPERATOR_ROUTING, origin=OPERATOR_ROUTING,
+                    origin_name=OPERATOR_NAME, destination=dest,
+                    destination_name=PARTICIPANTS[dest]["name"], created=now.astimezone(ET))
+                name = self.deliver(dest, rf, f"returns_from_{OPERATOR_ROUTING}", file_id)
+                self.event("returns_delivered", file_id=file_id, to=dest,
+                           from_rdfi=OPERATOR_ROUTING, mailbox_file=name,
+                           items=[{"original_trace": e.trace_number, "code": code}
+                                  for _, e, _, code, _ in r13])
+                st.detail.update(returns=len(r13), to=dest, mailbox_file=name)
 
         ack = {"file_id": file_id, "status": "accepted", "received_at": now.isoformat(),
                "file_key": f.file_key, "totals": f.summary(), "batches": batch_info,
@@ -298,9 +352,11 @@ class Operator:
     def _dispatch(self, rt: str, file_id: str, text: str, now: datetime, ack: dict):
         """Hand a forwarded file to a simulated RDFI service and record its decisions."""
         url = self.rdfi_urls.get(rt)
-        with telemetry.span("ach.rdfi.dispatch", **{
-                "ach.file.id": file_id, "ach.rdfi.routing": rt,
-                "ach.rdfi.name": bank_name(rt), "url.full": url or ""}) as s:
+        with self.step(file_id, "dispatch", span_name="ach.rdfi.dispatch",
+                       metric_attrs={"ach.rdfi.name": bank_name(rt)}, **{
+                           "ach.rdfi.routing": rt, "ach.rdfi.name": bank_name(rt),
+                           "url.full": url or "", "peer.service": "ach-rdfi"}) as st:
+            st.detail["rdfi"] = rt
             try:
                 if not url:
                     raise DependencyError(f"no RDFI service configured for {rt}")
@@ -309,22 +365,27 @@ class Operator:
                                         headers={"X-Sim-Time": now.isoformat(),
                                                  "X-File-Id": file_id})
             except DependencyError as exc:
-                telemetry.mark_error(s, exc)
+                st.fail(exc)
                 self.event("rdfi_unavailable", file_id=file_id, rdfi=rt, errors=[str(exc)])
                 ack.setdefault("warnings", []).append(
                     f"entries for {bank_name(rt)} were delivered to its mailbox, but its "
                     f"RDFI service did not process them: {exc}")
                 return
+            counts = {"posted": 0, "returns": 0, "nocs": 0, "received": 0}
             for d in resp["decisions"]:
                 if d["kind"] == "received":
+                    counts["received"] += 1
                     self.event("return_or_noc_received", file_id=file_id, bank=rt,
                                trace=d["trace"], code=d["code"])
                 else:
+                    counts[{"post": "posted", "return": "returns", "noc": "nocs"}[d["kind"]]] += 1
                     self.event("rdfi_decision", file_id=file_id, rdfi=rt, trace=d["trace"],
                                amount_cents=d["amount_cents"], outcome=d["outcome"])
+            st.detail.update({k: v for k, v in counts.items() if v})
             rf = resp.get("returns_file")
             if rf:
-                s.set_attribute("ach.returns_file.id", rf.get("file_id") or "")
+                st.detail["returns_file"] = rf.get("file_id") or ""
+                st.span.set_attribute("ach.returns_file.id", rf.get("file_id") or "")
                 for fwd in ack.get("forwarded", []):
                     if fwd["rdfi"] == rt:
                         fwd["rdfi_returns_file"] = rf.get("file_id")
@@ -372,10 +433,15 @@ def make_handler(op: Operator):
                 p = op.data / "mailbox" / rt / name
                 if not SAFE_NAME.match(name) or not p.exists():
                     return self.send(404, {"error": "no such file"})
-                op.event("mailbox_download", bank=rt, mailbox_file=name)
-                telemetry.MAILBOX_OPS.add(1, {"ach.operation": "download",
-                                              "ach.bank.name": bank_name(rt)})
-                return self.send(200, p.read_text(), "text/plain")
+                fid = op.mailbox_source.get(name, "")
+                with op.step(fid, "mailbox_download", attrs={
+                        "ach.bank.routing": rt, "ach.mailbox.file": name}) as st:
+                    st.detail.update(bank=rt, mailbox_file=name)
+                    body = p.read_text()
+                    op.event("mailbox_download", file_id=fid, bank=rt, mailbox_file=name)
+                    telemetry.MAILBOX_OPS.add(1, {"ach.operation": "download",
+                                                  "ach.bank.name": bank_name(rt)})
+                return self.send(200, body, "text/plain")
             self.send(404, {"error": "not found"})
 
         def handle_post(self):
@@ -393,10 +459,14 @@ def make_handler(op: Operator):
                 src = op.data / "mailbox" / rt / name
                 if not SAFE_NAME.match(name) or not src.exists():
                     return self.send(404, {"error": "no such file"})
-                shutil.move(src, src.parent / "picked_up" / name)
-                op.event("mailbox_ack", bank=rt, mailbox_file=name)
-                telemetry.MAILBOX_OPS.add(1, {"ach.operation": "ack",
-                                              "ach.bank.name": bank_name(rt)})
+                fid = op.mailbox_source.get(name, "")
+                with op.step(fid, "mailbox_ack", attrs={
+                        "ach.bank.routing": rt, "ach.mailbox.file": name}) as st:
+                    st.detail.update(bank=rt, mailbox_file=name)
+                    shutil.move(src, src.parent / "picked_up" / name)
+                    op.event("mailbox_ack", file_id=fid, bank=rt, mailbox_file=name)
+                    telemetry.MAILBOX_OPS.add(1, {"ach.operation": "ack",
+                                                  "ach.bank.name": bank_name(rt)})
                 return self.send(200, {"acknowledged": name})
             self.send(404, {"error": "not found"})
 

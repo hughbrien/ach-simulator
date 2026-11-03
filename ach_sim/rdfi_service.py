@@ -52,9 +52,11 @@ class RdfiBank:
         self.files_sent = 0
 
     def receive(self, text: str, sim_time: str | None, file_id: str = "") -> dict:
-        with telemetry.span("ach.rdfi.process", **{
-                "ach.rdfi.routing": self.routing, "ach.rdfi.name": self.name,
-                "ach.file.id": file_id}) as s:
+        with telemetry.step("rdfi_decide", span_name="ach.rdfi.process", logger=log,
+                            metric_attrs={"ach.rdfi.name": self.name}, **{
+                                "ach.rdfi.routing": self.routing, "ach.rdfi.name": self.name,
+                                "ach.file.id": file_id}) as st:
+            s = st.span
             f = nacha.parse(text)
             decisions, items = [], []
             with self.lock:
@@ -90,6 +92,7 @@ class RdfiBank:
                 self.files_sent += bool(items)
                 modifier = MODIFIERS[(self.files_sent - 1) % len(MODIFIERS)]
             s.set_attributes({"ach.entries": len(decisions), "ach.responses": len(items)})
+            st.detail.update(entries=len(decisions), responses=len(items))
             returns_file = self._send_returns(items, sim_time, modifier) if items else None
             return {"bank": self.routing, "decisions": decisions, "returns_file": returns_file}
 
@@ -104,17 +107,18 @@ class RdfiBank:
         headers = {"X-API-Key": self.api_key}
         if sim_time:
             headers["X-Sim-Time"] = sim_time
-        with telemetry.span("ach.rdfi.send_returns", **{
-                "ach.rdfi.name": self.name, "ach.entries": len(items)}) as s:
+        with telemetry.step("send_returns", span_name="ach.rdfi.send_returns", logger=log,
+                            metric_attrs={"ach.rdfi.name": self.name}, **{
+                                "ach.rdfi.name": self.name, "ach.entries": len(items)}) as st:
             status, ack = call("POST", f"{self.operator_url}/v1/files", body=rf.to_text(),
                                headers=headers)
             ack = ack if isinstance(ack, dict) else {}
-            s.set_attributes({"ach.file.id": ack.get("file_id", ""),
-                              "ach.file.status": ack.get("status", "")})
-        level = logging.INFO if status == 200 else logging.ERROR
-        log.log(level, "sent %d returns/NOCs to the operator: HTTP %s %s", len(items), status,
-                ack.get("file_id", ""), extra={"attrs": {"ach.file.id": ack.get("file_id"),
-                                                         "http.response.status_code": status}})
+            st.span.set_attributes({"ach.file.id": ack.get("file_id", ""),
+                                    "ach.file.status": ack.get("status", "")})
+            st.detail.update(entries=len(items), returns_file=ack.get("file_id", ""),
+                             http_status=status)
+            if status != 200:
+                st.fail(f"operator answered HTTP {status}: {'; '.join(ack.get('errors') or [])}")
         return {"status": status, "file_id": ack.get("file_id"), "errors": ack.get("errors")}
 
 

@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import sys
+import time
 from contextlib import contextmanager
 
 SERVICE_NAMESPACE = "ach-simulator"
@@ -105,6 +106,11 @@ HTTP_SERVER_DURATION = meter.create_histogram(
     "http.server.request.duration", unit="s", description="Operator HTTP request duration")
 HTTP_CLIENT_DURATION = meter.create_histogram(
     "http.client.request.duration", unit="s", description="Bank client HTTP request duration")
+STEPS = meter.create_counter(
+    "ach.steps", unit="{step}",
+    description="Processing steps completed, by step and status (ok / rejected / error)")
+STEP_DURATION = meter.create_histogram(
+    "ach.step.duration", unit="s", description="Duration of one processing step")
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +127,73 @@ def span(name: str, kind: str = "internal", parent_headers=None, **attributes):
     with tracer.start_as_current_span(name, context=ctx, kind=_KINDS[kind],
                                       attributes=_clean(attributes)) as s:
         yield s
+
+
+class Step:
+    """Handle yielded by step(): set `status`/`detail`, or call reject()/fail()."""
+
+    def __init__(self, name: str):
+        self.name, self.status, self.detail = name, "ok", {}
+        self.duration = 0.0
+        self.span = _NoSpan()
+
+    def reject(self, reason: str, **detail):
+        """A business outcome (failed edits, duplicate, ...): not a span error."""
+        self.status = "rejected"
+        self.detail.update(reason=reason, **detail)
+
+    def fail(self, error, **detail):
+        """Something broke (a dependency was down, ...): marks the span as an error."""
+        self.status = "error"
+        self.detail.update(error=str(error), **detail)
+
+
+_LOG_LEVELS = {"ok": logging.INFO, "skipped": logging.INFO, "rejected": logging.WARNING,
+               "error": logging.ERROR}
+
+
+@contextmanager
+def step(name: str, *, span_name: str | None = None, logger: logging.Logger | None = None,
+         on_end=None, metric_attrs: dict | None = None, **attributes):
+    """One processing step, observed three ways:
+
+    trace   a span (`ach.step.<name>` unless span_name is given) with ach.step,
+            ach.step.status and ach.step.<detail> attributes;
+    metrics ach.steps (counter) and ach.step.duration (histogram), by step and status;
+    log     one line at the end, inside the span so it carries the trace and span ID.
+
+    `on_end(step)` replaces the log line (the operator uses it to write a
+    `file_step` event, which is logged too). It runs inside the span."""
+    st = Step(name)
+    start = time.perf_counter()
+    with span(span_name or f"ach.step.{name}", **{"ach.step": name, **attributes}) as s:
+        st.span = s
+        try:
+            yield st
+        except Exception as exc:
+            st.fail(exc)
+            raise
+        finally:
+            st.duration = time.perf_counter() - start
+            s.set_attributes(_clean({"ach.step.status": st.status,
+                                     "ach.step.duration_ms": round(st.duration * 1000, 3),
+                                     **{f"ach.step.{k}": v for k, v in st.detail.items()}}))
+            if st.status == "error":
+                mark_error(s, st.detail.get("error", "step failed"))
+            attrs = {"ach.step": name, "ach.step.status": st.status, **(metric_attrs or {})}
+            STEPS.add(1, attrs)
+            STEP_DURATION.record(st.duration, attrs)
+            if on_end is not None:
+                on_end(st)
+            else:
+                (logger or log).log(
+                    _LOG_LEVELS.get(st.status, logging.INFO), "step %s %s in %.1f ms%s", name,
+                    st.status, st.duration * 1000,
+                    "".join(f" {k}={v}" for k, v in st.detail.items()),
+                    extra={"attrs": {"ach.step": name, "ach.step.status": st.status,
+                                     "ach.step.duration_ms": round(st.duration * 1000, 3),
+                                     **{k: v for k, v in attributes.items()},
+                                     **{f"ach.step.{k}": v for k, v in st.detail.items()}}})
 
 
 def http_route(path: str) -> str:

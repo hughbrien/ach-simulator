@@ -33,7 +33,7 @@
   .stat .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .stat .k { color: var(--muted); font-size: 12px; }
   .stat.ret .v { color: var(--ret); } .stat.noc .v { color: var(--noc); } .stat.post .v { color: var(--post); }
-  .cols { display: grid; grid-template-columns: minmax(320px, 2fr) 3fr; gap: 16px; align-items: start; }
+  .cols { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(0, 2.2fr); gap: 16px; align-items: start; }
   @media (max-width: 1000px) { .cols { grid-template-columns: 1fr; } }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
@@ -82,6 +82,51 @@
   .box li.done { color: var(--muted); }
   .box .lbl { padding: 6px 12px 0; font-size: 11px; color: var(--muted); text-transform: uppercase; }
   .ev-detail { color: var(--muted); font-size: 12px; }
+  .pill.error { color: #fff; background: var(--ret); }
+  .pill.ok { color: var(--post); background: var(--post-bg); }
+  .muted { color: var(--muted); font-size: 12px; }
+  .copy { cursor: copy; border-bottom: 1px dotted var(--muted); }
+  .link { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  /* step-by-step view */
+  .steps-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px;
+               border-bottom: 1px solid var(--line); }
+  .steps-grid { display: grid; grid-template-columns: minmax(300px, 2fr) minmax(0, 3fr); align-items: start; }
+  @media (max-width: 1300px) { .steps-grid { grid-template-columns: 1fr; } }
+  ol.stepper { list-style: none; margin: 0; padding: 8px 0; border-right: 1px solid var(--line);
+               max-height: 560px; overflow: auto; }
+  .step { display: grid; grid-template-columns: 28px minmax(0, 1fr) 70px; gap: 8px; align-items: center;
+          padding: 6px 12px; cursor: pointer; position: relative; transition: opacity .25s; }
+  .step:hover { background: var(--bg); }
+  .step.sel { background: var(--sel); }
+  .step.future { opacity: .3; }
+  .step .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+               font-size: 11px; font-weight: 700; color: #fff; background: var(--post); }
+  .step.rejected .num, .step.error .num { background: var(--ret); }
+  .step.skipped .num { background: var(--info); }
+  .step:not(:last-child) .num::after { content: ""; position: absolute; left: 23px; top: 30px;
+               height: calc(100% - 24px); border-left: 2px solid var(--line); }
+  .step .t { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .step .svc { font: 11px ui-monospace, Menlo, monospace; color: var(--accent); }
+  .step .sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step .dur { font: 11px ui-monospace, Menlo, monospace; text-align: right; color: var(--muted); }
+  .step .bar { height: 4px; border-radius: 2px; background: var(--accent); margin-bottom: 3px; margin-left: auto; min-width: 2px; }
+  .step-detail { padding: 12px 14px; display: grid; gap: 12px; }
+  .step-detail h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+  .step-detail .desc { color: var(--muted); }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; font-size: 12px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .kv div:nth-child(even) { font-family: ui-monospace, Menlo, monospace; word-break: break-all; }
+  .tele { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; }
+  .tele .h { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .tele .row { display: grid; grid-template-columns: 64px 1fr; gap: 8px; font-size: 12px; align-items: baseline; }
+  .tele .row b { font-weight: 600; }
+  .tele code, .dql { font: 11.5px ui-monospace, Menlo, monospace; }
+  td.ts { white-space: nowrap; }
+  tr.ev { cursor: pointer; }
+  tr.ev:hover td { background: var(--bg); }
+  tr.json td { background: var(--bg); padding: 0; }
+  tr.json pre { max-height: 260px; }
+  .sec-h { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -101,14 +146,15 @@
     <div class="panel">
       <h2><span id="detail-title">Details</span>
         <span class="right tabs" id="detail-tabs"></span></h2>
-      <div id="detail"><div class="empty">Select a file to see its entries and what happened to each one.</div></div>
+      <div id="detail"><div class="empty">Select a file to step through how it was processed, then view its entries and events.</div></div>
     </div>
   </section>
 
   <section class="panel">
     <h2>
       <span class="tabs"><button id="tab-events" class="on">Event log</button><button id="tab-mail">Mailboxes</button></span>
-      <span class="right"><select id="ev-filter"><option value="">all events</option></select></span>
+      <span class="right"><label class="muted" id="ev-only-l"><input type="checkbox" id="ev-only"> selected file only</label>
+        <select id="ev-filter"><option value="">all events</option></select></span>
     </h2>
     <div id="bottom"></div>
   </section>
@@ -118,9 +164,30 @@
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money = (c) => (c / 100).toLocaleString("en-US", {style: "currency", currency: "USD"});
-const simTime = (t) => t ? t.replace("T", " ").replace(/:00([+-]\d\d:\d\d)$/, " $1") : "";
+const simTime = (t) => t ? t.replace("T", " ").replace(/\.\d+/, "").replace(/:00([+-]\d\d:\d\d)$/, " $1") : "";
 
-let state = null, selected = null, detailView = "entries", bottomTab = "events", lastSig = "";
+let state = null, selected = null, detailView = "steps", bottomTab = "events", lastSig = "";
+let stepIdx = 0, playTimer = null, openEvents = new Set();
+
+// What each processing step is, which service does it, and its span name.
+const STEP_INFO = {
+  receive: ["Receive file", "ach-operator", "Authenticate the sending bank by its API key and store the raw file."],
+  validate: ["Validate (Nacha edits)", "ach-validation", "Record lengths, field formats, batch and file counts, entry hash and totals."],
+  origin_check: ["Origin & destination", "ach-operator", "The file's immediate origin must be the authenticated bank and its destination the operator."],
+  duplicate_check: ["Duplicate check", "ach-operator", "Origin + creation date/time + file ID modifier must not have been accepted before."],
+  settle: ["Settlement", "ach-settlement", "Settlement date and Same Day window for each batch."],
+  accept: ["Accept", "ach-operator", "The file is accepted; totals and settlement are recorded."],
+  route: ["Route to RDFI", "ach-operator", "Entries for one receiving bank are bundled into a file and delivered to its mailbox."],
+  operator_returns: ["Operator returns (R13)", "ach-operator", "Entries for banks outside the network are returned by the operator."],
+  dispatch: ["RDFI processing", "ach-rdfi", "The receiving bank's service posts, returns or NOCs each entry, then sends its returns back as a file of its own."],
+  mailbox_download: ["Mailbox download", "ach-operator", "The receiving bank's client downloads the file from its mailbox."],
+  mailbox_ack: ["Mailbox acknowledged", "ach-operator", "The receiving bank confirms pickup; the file moves to picked_up/."],
+};
+const SPAN_NAME = {route: "ach.rdfi.route", dispatch: "ach.rdfi.dispatch"};
+const STEP_KEYS = new Set(["ts", "event", "file_id", "step", "status", "duration_ms", "trace_id", "span_id", "events"]);
+const bankName = (rt) => state?.mailboxes.find((m) => m.routing === rt)?.name || rt;
+const statusPill = (s) => s === "ok" ? "ok" : s === "rejected" ? "return" : s === "error" ? "error" : "info";
+function copy(text) { navigator.clipboard?.writeText(text); }
 
 async function getJSON(url) {
   const r = await fetch(url, {cache: "no-store"});
@@ -179,14 +246,22 @@ function renderFiles() {
       <span class="grow">${extra}</span></div><div class="sub">${sub}</div></div>`;
   }).join("");
   document.querySelectorAll(".file").forEach((el) => el.onclick = () => {
-    selected = {type: "file", id: el.dataset.id}; detailView = "entries"; renderFiles(); loadFile(el.dataset.id);
+    selectFile(el.dataset.id);
   });
+}
+
+function selectFile(id) {
+  stopPlay();
+  selected = {type: "file", id}; detailView = "steps"; stepIdx = 0; openEvents.clear();
+  renderFiles(); loadFile(id);
+  if ($("#ev-only").checked) renderBottom();
 }
 
 function setTabs(views) {
   $("#detail-tabs").innerHTML = views.map(([v, label]) =>
     `<button data-v="${v}" class="${v === detailView ? "on" : ""}">${label}</button>`).join("");
   document.querySelectorAll("#detail-tabs button").forEach((b) => b.onclick = () => {
+    if (b.dataset.v !== "steps") stopPlay();
     detailView = b.dataset.v; renderDetail();
   });
 }
@@ -196,6 +271,7 @@ async function loadFile(id, quiet) {
   try { detail = {type: "file", data: await getJSON(`/api/file/${encodeURIComponent(id)}`)}; }
   catch { if (!quiet) $("#detail").innerHTML = `<div class="empty">Could not load ${esc(id)}.</div>`; return; }
   renderDetail();
+  if ($("#ev-only").checked && bottomTab === "events") renderBottom();
 }
 async function loadMailbox(rt, name, picked) {
   selected = {type: "mail"}; detailView = "describe"; renderFiles();
@@ -214,7 +290,10 @@ function renderDetail() {
     return;
   }
   $("#detail-title").textContent = d.file_id;
-  setTabs([["entries", "Entries"], ["describe", "Decoded"], ["raw", "Raw"]]);
+  setTabs([["steps", `Steps (${d.steps.length})`], ["entries", "Entries"],
+           ["events", `Events (${d.events.length})`], ["describe", "Decoded"], ["raw", "Raw"]]);
+  if (detailView === "steps") return renderSteps(d);
+  if (detailView === "events") return renderFileEvents(d);
   if (detailView !== "entries") {
     $("#detail").innerHTML = `<pre>${esc(detailView === "raw" ? d.raw : d.describe)}</pre>`;
     return;
@@ -243,8 +322,182 @@ function renderDetail() {
   }).join("") + `</div>`;
 }
 
+// ---------- step-by-step view ----------
+function stepTitle(s) {
+  const info = STEP_INFO[s.step] || [s.step, "", ""];
+  let title = info[0], svc = info[1];
+  if (s.step === "route" || s.step === "dispatch") title += ` · ${bankName(s.rdfi)}`;
+  if (s.step === "dispatch") svc = "ach-rdfi-" + bankName(s.rdfi).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  if (s.step.startsWith("mailbox_")) title += ` · ${bankName(s.bank)}`;
+  return [title, svc, info[2]];
+}
+function stepSummary(s) {
+  const parts = Object.entries(s).filter(([k, v]) => !STEP_KEYS.has(k) && !["rdfi", "bank"].includes(k) && v !== "" && v != null)
+    .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`);
+  return parts.join(" · ");
+}
+
+function renderSteps(d) {
+  const steps = d.steps;
+  const fileStatus = d.event.event === "file_accepted" ? "accepted" : d.event.event === "file_rejected" ? "rejected" : "";
+  const tid = steps.find((s) => s.trace_id)?.trace_id || d.events.find((e) => e.trace_id)?.trace_id || "";
+  const rel = [];
+  for (const r of d.related.returns_files || []) rel.push(`returns came back as <span class="link" data-file="${esc(r)}">${esc(r)}</span>`);
+  if (d.related.in_response_to) rel.push(`returns/NOCs for <span class="link" data-file="${esc(d.related.in_response_to)}">${esc(d.related.in_response_to)}</span>`);
+  if (!steps.length) {
+    $("#detail").innerHTML = `<div class="empty">No step records for this file: it was processed before step tracing was added.
+      Its ${d.events.length} events are on the Events tab.</div>`;
+    return;
+  }
+  stepIdx = Math.min(stepIdx, steps.length - 1);
+  const maxDur = Math.max(...steps.map((s) => s.duration_ms || 0), 0.001);
+  const total = steps.reduce((a, s) => a + (s.duration_ms || 0), 0);
+  const items = steps.map((s, i) => {
+    const [title, svc] = stepTitle(s);
+    const cls = [s.status, i === stepIdx ? "sel" : "", i > stepIdx ? "future" : ""].join(" ");
+    return `<li class="step ${cls}" data-i="${i}"><span class="num">${i + 1}</span>
+      <div style="min-width:0"><div class="t" title="${esc(title)}">${esc(title)}</div>
+        <div class="sub" title="${esc(stepSummary(s))}"><span class="svc">${esc(svc)}</span>${stepSummary(s) ? " · " + esc(stepSummary(s)) : ""}</div></div>
+      <div class="dur"><div class="bar" style="width:${Math.max(2, 100 * (s.duration_ms || 0) / maxDur)}%"></div>${(s.duration_ms ?? 0).toFixed(1)} ms</div></li>`;
+  }).join("");
+  $("#detail").innerHTML = `
+    <div class="steps-bar">
+      ${fileStatus ? `<span class="pill ${fileStatus}">${fileStatus}</span>` : ""}
+      ${tid ? `<span class="muted">trace <span class="mono copy" title="click to copy" data-copy="${esc(tid)}">${esc(tid)}</span></span>` : ""}
+      ${rel.length ? `<span class="muted">· ${rel.join(" · ")}</span>` : ""}
+      <span class="grow"></span>
+      <span class="muted">${steps.length} steps · ${total.toFixed(1)} ms</span>
+      <button class="btn" id="st-first" title="first step (Home)">⏮</button>
+      <button class="btn" id="st-prev" title="previous step (←)">◀ Prev</button>
+      <button class="btn" id="st-play">${playTimer ? "⏸ Pause" : "▶ Play"}</button>
+      <button class="btn" id="st-next" title="next step (→)">Next ▶</button>
+      <button class="btn" id="st-last" title="show all steps (End)">⏭ All</button>
+      <span class="muted">step ${stepIdx + 1} / ${steps.length}</span>
+    </div>
+    <div class="steps-grid"><ol class="stepper">${items}</ol><div class="step-detail" id="step-detail"></div></div>`;
+  renderStepDetail(steps[stepIdx], stepIdx);
+  document.querySelectorAll(".step").forEach((el) => el.onclick = () => { stopPlay(); goStep(+el.dataset.i); });
+  $("#st-first").onclick = () => { stopPlay(); goStep(0); };
+  $("#st-prev").onclick = () => { stopPlay(); goStep(stepIdx - 1); };
+  $("#st-next").onclick = () => { stopPlay(); goStep(stepIdx + 1); };
+  $("#st-last").onclick = () => { stopPlay(); goStep(steps.length - 1); };
+  $("#st-play").onclick = () => playTimer ? stopPlay() : startPlay();
+  wireCommon($("#detail"));
+}
+
+function renderStepDetail(s, i) {
+  const [title, svc, desc] = stepTitle(s);
+  const detail = Object.entries(s).filter(([k, v]) => !STEP_KEYS.has(k) && v !== "" && v != null);
+  const span = SPAN_NAME[s.step] || `ach.step.${s.step}`;
+  const tid = s.trace_id || "", sid = s.span_id || "";
+  const dqlSpans = `fetch spans | filter toString(trace.id) == "${tid}" | sort start_time asc`;
+  const dqlLogs = `fetch logs | filter toString(trace_id) == "${tid}" | sort timestamp asc`;
+  const evs = s.events || [];
+  $("#step-detail").innerHTML = `
+    <h3>${i + 1}. ${esc(title)} <span class="pill ${statusPill(s.status)}">${esc(s.status)}</span>
+      <span class="muted">${(s.duration_ms ?? 0).toFixed(3)} ms · ${esc(svc)}</span></h3>
+    <div class="desc">${esc(desc)}</div>
+    ${detail.length ? `<div class="kv">${detail.map(([k, v]) => `<div>${esc(k)}</div><div>${
+      k === "returns_file" ? `<span class="link" data-file="${esc(v)}">${esc(v)}</span>` : esc(Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : v)}</div>`).join("")}</div>` : ""}
+    <div class="tele">
+      <div class="h">Telemetry captured for this step</div>
+      <div class="row"><b>Trace</b><div>span <code>${esc(span)}</code> · span id <code class="copy" data-copy="${esc(sid)}">${esc(sid) || "–"}</code>
+        · trace <code class="copy" data-copy="${esc(tid)}">${esc(tid.slice(0, 16)) || "–"}${tid ? "…" : ""}</code>
+        ${s.status === "error" ? ' · <span class="pill error">span status ERROR</span>' : ""}</div></div>
+      <div class="row"><b>Metrics</b><div><code>ach.steps</code> +1 and <code>ach.step.duration</code> ${(s.duration_ms ?? 0).toFixed(3)} ms
+        with <code>ach.step="${esc(s.step)}"</code>, <code>ach.step.status="${esc(s.status)}"</code></div></div>
+      <div class="row"><b>Log</b><div><code>file_step</code> record from <code>ach_sim.operator</code> at
+        ${s.status === "error" ? "ERROR" : s.status === "rejected" ? "WARNING" : "INFO"}, carrying this trace and span id
+        ${evs.length ? ` (+${evs.length} more log record${evs.length > 1 ? "s" : ""} for the events below)` : ""}</div></div>
+      ${tid ? `<div class="row"><b>DQL</b><div><span class="link" data-copy="${esc(dqlSpans)}">copy spans query</span> ·
+        <span class="link" data-copy="${esc(dqlLogs)}">copy logs query</span></div></div>` : ""}
+    </div>
+    <div><div class="sec-h">Events recorded in this step (${evs.length + 1})</div>
+      ${eventTable([s, ...evs], false)}</div>`;
+  wireCommon($("#step-detail"));
+}
+
+function goStep(i) {
+  const steps = detail?.data?.steps || [];
+  if (!steps.length) return;
+  stepIdx = Math.max(0, Math.min(steps.length - 1, i));
+  history.replaceState(null, "", `#file=${encodeURIComponent(detail.data.file_id)}&step=${stepIdx + 1}`);
+  renderSteps(detail.data);
+}
+function startPlay() {
+  const steps = detail?.data?.steps || [];
+  if (!steps.length) return;
+  if (stepIdx >= steps.length - 1) stepIdx = -1;
+  playTimer = setInterval(() => {
+    if (stepIdx >= steps.length - 1) return stopPlay();
+    goStep(stepIdx + 1);
+  }, 1100);
+  goStep(stepIdx + 1);
+}
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  const b = $("#st-play"); if (b) b.textContent = "▶ Play";
+}
+
+function renderFileEvents(d) {
+  const stepBySpan = Object.fromEntries(d.steps.map((s) => [s.span_id, s.step]));
+  $("#detail").innerHTML = d.events.length
+    ? `<div class="scroll">${eventTable(d.events, true, stepBySpan)}</div>`
+    : `<div class="empty">No events for this file.</div>`;
+  wireCommon($("#detail"));
+}
+
+// ---------- events (shared by the file view and the event log) ----------
+function evKind(e) {
+  if (e.event === "file_step") return statusPill(e.status);
+  if (e.event === "file_rejected" || e.event === "operator_return" || e.event === "rdfi_unavailable") return "return";
+  if (e.event === "file_accepted") return "post";
+  if (e.event === "rdfi_decision") return e.outcome.startsWith("posted") ? "post" : e.outcome.startsWith("NOC") ? "noc" : "return";
+  return "info";
+}
+function evKey(e) { return `${e.ts}|${e.event}|${e.span_id || ""}|${e.trace || e.step || e.mailbox_file || ""}|${e.file_id || ""}`; }
+function eventTable(evs, withStep, stepBySpan = {}) {
+  const head = `<tr><th>UTC</th>${withStep ? "<th>Step</th>" : ""}<th>Event</th><th>Details</th></tr>`;
+  const cols = withStep ? 4 : 3;
+  return `<table><thead>${head}</thead><tbody>` + evs.map((e) => {
+    const k = evKey(e), open = openEvents.has(k);
+    const label = e.event === "file_step" ? `step: ${e.step}` : e.event;
+    return `<tr class="ev" data-k="${esc(k)}"><td class="mono ts" title="${esc(e.ts)}">${esc(e.ts.slice(11, 19))}</td>
+      ${withStep ? `<td class="mono">${esc(e.event === "file_step" ? e.step : stepBySpan[e.span_id] || "")}</td>` : ""}
+      <td><span class="pill ${evKind(e)}" title="${e.trace_id ? "trace " + esc(e.trace_id) : ""}">${esc(label)}</span></td>
+      <td class="ev-detail mono">${esc(eventSummary(e))}</td></tr>` +
+      (open ? `<tr class="json"><td colspan="${cols}"><pre>${esc(JSON.stringify(e, null, 2))}</pre></td></tr>` : "");
+  }).join("") + `</tbody></table>`;
+}
+function wireCommon(root) {
+  root.querySelectorAll("tr.ev").forEach((tr) => tr.onclick = () => {
+    const k = tr.dataset.k;
+    openEvents.has(k) ? openEvents.delete(k) : openEvents.add(k);
+    const next = tr.nextElementSibling;
+    if (next?.classList.contains("json")) next.remove();
+    else {
+      const row = document.createElement("tr"); row.className = "json";
+      const ev = findEvent(k);
+      row.innerHTML = `<td colspan="${tr.children.length}"><pre>${esc(JSON.stringify(ev, null, 2))}</pre></td>`;
+      tr.after(row);
+    }
+  });
+  root.querySelectorAll("[data-copy]").forEach((el) => el.onclick = (ev) => {
+    ev.stopPropagation(); copy(el.dataset.copy);
+    const old = el.textContent; el.textContent = "copied"; setTimeout(() => el.textContent = old, 900);
+  });
+  root.querySelectorAll("[data-file]").forEach((el) => el.onclick = (ev) => { ev.stopPropagation(); selectFile(el.dataset.file); });
+}
+function findEvent(k) {
+  const pools = [detail?.data?.events || [], ...(detail?.data?.steps || []).map((s) => [s, ...(s.events || [])]), state?.events || []];
+  for (const pool of pools) for (const e of pool) if (evKey(e) === k) {
+    const {events, ...rest} = e; return rest;
+  }
+  return {};
+}
+
 function eventSummary(ev) {
-  const skip = new Set(["ts", "event", "batches_detail", "traces", "items", "errors", "warnings", "trace_id", "span_id"]);
+  const skip = new Set(["ts", "event", "batches_detail", "traces", "items", "errors", "warnings", "trace_id", "span_id", "events"]);
   const parts = Object.entries(ev).filter(([k, v]) => !skip.has(k) && v !== "" && v != null)
     .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`);
   if (ev.traces) parts.push(`${ev.traces.length} entries`);
@@ -257,19 +510,17 @@ function renderBottom() {
   $("#tab-events").classList.toggle("on", bottomTab === "events");
   $("#tab-mail").classList.toggle("on", bottomTab === "mail");
   $("#ev-filter").style.display = bottomTab === "events" ? "" : "none";
+  $("#ev-only-l").style.display = bottomTab === "events" ? "" : "none";
   if (bottomTab === "events") {
     const sel = $("#ev-filter"), cur = sel.value;
     const kinds = [...new Set(state.events.map((e) => e.event))].sort();
     sel.innerHTML = `<option value="">all events</option>` + kinds.map((k) => `<option ${k === cur ? "selected" : ""}>${esc(k)}</option>`).join("");
-    const evs = state.events.filter((e) => !cur || e.event === cur);
-    $("#bottom").innerHTML = evs.length ? `<div class="scroll"><table><thead><tr><th>Logged (UTC)</th><th>Event</th><th>Details</th></tr></thead><tbody>` +
-      evs.map((e) => {
-        const k = e.event === "file_rejected" || e.event === "operator_return" ? "return"
-          : e.event === "file_accepted" ? "post" : e.event === "rdfi_decision"
-          ? (e.outcome.startsWith("posted") ? "post" : e.outcome.startsWith("NOC") ? "noc" : "return") : "info";
-        return `<tr><td class="mono">${esc(e.ts.replace("T", " ").replace("+00:00", ""))}</td>
-          <td><span class="pill ${k}" title="${e.trace_id ? "trace " + esc(e.trace_id) : ""}">${esc(e.event)}</span></td><td class="ev-detail mono">${esc(eventSummary(e))}</td></tr>`;
-      }).join("") + `</tbody></table></div>` : `<div class="empty">No events yet.</div>`;
+    const only = $("#ev-only").checked && selected?.type === "file" && detail?.type === "file";
+    const pool = only ? [...detail.data.events].reverse() : state.events;
+    const evs = pool.filter((e) => !cur || e.event === cur);
+    $("#bottom").innerHTML = evs.length ? `<div class="scroll">${eventTable(evs, false)}</div>`
+      : `<div class="empty">No events${only ? " for this file" : ""} yet.</div>`;
+    wireCommon($("#bottom"));
   } else {
     $("#bottom").innerHTML = `<div class="boxes">` + state.mailboxes.map((m) => {
       const li = (n, picked) => `<li class="${picked ? "done" : ""}" data-rt="${m.routing}" data-n="${esc(n)}" data-p="${picked ? 1 : ""}">${esc(n)}</li>`;
@@ -285,7 +536,18 @@ function renderBottom() {
 $("#tab-events").onclick = () => { bottomTab = "events"; renderBottom(); };
 $("#tab-mail").onclick = () => { bottomTab = "mail"; renderBottom(); };
 $("#ev-filter").onchange = renderBottom;
-refresh();
+$("#ev-only").onchange = renderBottom;
+document.addEventListener("keydown", (e) => {
+  if (detailView !== "steps" || detail?.type !== "file" || e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  const map = {ArrowLeft: () => goStep(stepIdx - 1), ArrowRight: () => goStep(stepIdx + 1),
+               Home: () => goStep(0), End: () => goStep(1e9)};
+  if (map[e.key]) { e.preventDefault(); stopPlay(); map[e.key](); }
+});
+// Deep link: #file=F20261102-0001&step=3 opens that file at that step.
+const hash = new URLSearchParams(location.hash.slice(1));
+refresh().then(() => {
+  if (hash.get("file")) { selectFile(hash.get("file")); stepIdx = Math.max(0, (+hash.get("step") || 1) - 1); }
+});
 setInterval(() => { if ($("#live").checked) refresh(); }, 2000);
 </script>
 </body>

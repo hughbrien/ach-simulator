@@ -29,15 +29,16 @@ class Handler(TracedHandler):
         if self.route_path != "/v1/validate":
             return super().handle_post()
         text = self.body_text()
-        with telemetry.span("ach.validate", **{"ach.file.bytes": len(text)}) as s:
+        with telemetry.step("edit_checks", span_name="ach.validate", logger=log,
+                            **{"ach.file.bytes": len(text)}) as st:
             res = nacha.validate(text)
-            s.set_attributes({"ach.validation.errors": len(res.errors),
-                              "ach.validation.warnings": len(res.warnings),
-                              "ach.file.valid": res.ok})
+            st.span.set_attributes({"ach.validation.errors": len(res.errors),
+                                    "ach.validation.warnings": len(res.warnings),
+                                    "ach.file.valid": res.ok})
+            st.detail.update(errors=len(res.errors), warnings=len(res.warnings))
+            if not res.ok:
+                st.reject("failed_edits", first_error=res.errors[0])
         telemetry.VALIDATIONS.add(1, {"ach.result": "valid" if res.ok else "invalid"})
-        if not res.ok:
-            log.warning("file failed edits: %s", "; ".join(res.errors),
-                        extra={"attrs": {"ach.validation.errors": res.errors}})
         self.send(200, {"ok": res.ok, "errors": res.errors, "warnings": res.warnings})
 
 

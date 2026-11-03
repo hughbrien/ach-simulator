@@ -16,11 +16,14 @@ import argparse
 from datetime import datetime
 from http.server import ThreadingHTTPServer
 
+import logging
+
 from . import nacha, telemetry
 from .service import DEFAULT_PORTS, HOST, TracedHandler, run_service
 from .settlement import ET, settlement_for
 
 SERVICE_NAME = "ach-settlement"
+log = logging.getLogger("ach_sim.settlement")
 
 
 class Handler(TracedHandler):
@@ -40,15 +43,16 @@ class Handler(TracedHandler):
         except (KeyError, TypeError, ValueError) as exc:
             return self.send(400, {"error": f"bad request: {exc}"})
         out = []
-        with telemetry.span("ach.settle", **{"ach.batches": len(batches),
-                                             "ach.sim_time": now.isoformat()}) as s:
+        with telemetry.step("settlement_dates", span_name="ach.settle", logger=log,
+                            **{"ach.batches": len(batches), "ach.sim_time": now.isoformat()}) as st:
             for b in batches:
                 sdate, window = settlement_for(nacha.parse_yymmdd(b["effective_date"]), now,
                                                b.get("same_day_eligible", True))
                 out.append({"batch": b.get("batch"), "settlement_date": sdate.isoformat(),
                             "window": window})
                 telemetry.SETTLEMENTS.add(1, {"ach.window": window})
-            s.set_attribute("ach.windows", sorted({b["window"] for b in out}))
+            st.span.set_attribute("ach.windows", sorted({b["window"] for b in out}))
+            st.detail.update(batches=len(out), windows=sorted({b["window"] for b in out}))
         self.send(200, {"batches": out})
 
 

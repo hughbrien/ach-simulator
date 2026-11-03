@@ -22,7 +22,7 @@ to identify a real institution.
 
 ```bash
 python3 run_demo.py                          # full business day, end to end
-python3 -m unittest discover -s tests -v     # 22 tests (1 skipped without OpenTelemetry)
+python3 -m unittest discover -s tests -v     # 24 tests (1 skipped without OpenTelemetry)
 python3 generate_examples.py                 # rebuild examples/ from code
 ```
 
@@ -57,6 +57,17 @@ python3 -m ach_sim.dashboard --data-dir sim_data
 It shows totals, every submitted file with its settlement window, each entry's
 outcome (posted, returned, NOC, including returns the receiving bank sends back
 later), the event log, and each bank's mailbox, with any file decoded.
+
+Select a file to step through how it was processed. The **Steps** tab lists each
+step in order (receive, validate, origin check, duplicate check, settle, accept,
+route and RDFI processing per bank, mailbox download and ack), with its service,
+status and duration. Prev / Next (or the arrow keys) and Play walk through them one at
+a time. For the selected step it shows the step's details, the telemetry captured
+for it (span name and ID, trace ID, the step metrics, the log record, and DQL
+queries to copy), and the events recorded inside it. A rejected file stops at the
+step that rejected it. The **Events** tab lists every event for the file; click
+any event, there or in the event log, to see its full JSON. Links such as
+`#file=F20261103-0520&step=3` open a file at a given step.
 
 `--sim-time` sets the simulated submission clock (Eastern Time), which drives the
 Same Day window and settlement date. Without it the operator uses the real clock.
@@ -196,10 +207,12 @@ creation date, creation time and file ID modifier match a file already accepted.
 5. The RDFI service builds a return/NOC file (returns in batches mirroring the original batch header, NOCs in COR batches, trace numbers prefixed with the RDFI's ID) and submits it to the operator, which edits and routes it to the ODFI's mailbox like any other file.
 6. Entries addressed to a routing number that is not a participant come back as R13 from the operator.
 
-Every step is written to `sim_data/events.jsonl` (`file_accepted`, `file_rejected`,
-`entries_forwarded`, `rdfi_decision`, `returns_delivered`, `operator_return`,
-`mailbox_download`, `mailbox_ack`, `return_or_noc_received`) with file IDs and
-trace numbers, so the log can feed an observability tool.
+Every step is written to `sim_data/events.jsonl` as a `file_step` event (`step`,
+`status` ok / rejected / error, `duration_ms` and step details), alongside the
+business events `file_accepted`, `file_rejected`, `entries_forwarded`,
+`rdfi_decision`, `returns_delivered`, `operator_return`, `mailbox_download`,
+`mailbox_ack` and `return_or_noc_received`, with file IDs, trace numbers and the
+trace and span ID of the step that produced them.
 
 ## Record layouts (positions are 1-based, inclusive)
 
@@ -275,6 +288,19 @@ one `ach.rdfi.decision` span event per entry) → `ach.rdfi.send_returns` → a 
 `ach.file.submit` in the operator for the RDFI's return file. `receive` traces as `ach.client.receive` → `ach.client.process_file`
 per mailbox file. Spans carry `ach.file.id`, bank names, trace numbers and outcomes.
 
+**Steps.** Every processing step is captured as all three signals by
+`telemetry.step()`: a span (`ach.step.<step>`, or the span names above for route,
+dispatch, validation, settlement and the RDFI) with `ach.step`, `ach.step.status`
+and the step details as `ach.step.*` attributes; the `ach.steps` and
+`ach.step.duration` metrics; and a log record inside the span, so it carries the
+trace and span ID. Rejections (failed edits, duplicates, ...) have status
+`rejected`; failures (a service down) have status `error` and mark the span as an
+error. Steps per service: operator `receive`, `validate`, `origin_check`,
+`duplicate_check`, `settle`, `accept`, `route`, `operator_returns`, `dispatch`,
+`mailbox_download`, `mailbox_ack`; validation `edit_checks`; settlement
+`settlement_dates`; RDFI `rdfi_decide`, `send_returns`; client `precheck`,
+`transmit`, `process_mailbox_file`.
+
 **Metrics.**
 
 | Metric | Unit | Attributes |
@@ -286,6 +312,8 @@ per mailbox file. Spans carry `ach.file.id`, bank names, trace numbers and outco
 | `ach.amount` | USD | `ach.sec`, `ach.direction` (credit/debit), `ach.window` |
 | `ach.mailbox.operations` | file | `ach.operation` (deliver/download/ack), `ach.bank.name` |
 | `ach.ledger.postings` | entry | client side: `ach.outcome`, `ach.code`, `ach.bank.name` |
+| `ach.steps` | step | `ach.step`, `ach.step.status` (ok/rejected/error), `ach.rdfi.name` for route/dispatch/RDFI steps |
+| `ach.step.duration` | s | same as `ach.steps` |
 | `http.server.request.duration`, `http.client.request.duration` | s | method, route, status |
 
 **Logs.** The package logs through Python `logging` (logger `ach_sim`). Every

@@ -197,8 +197,42 @@ class Observer:
             described = nacha.describe(text)
         except Exception as exc:
             described = f"(could not describe file: {exc})"
+        steps, file_events, related = self.timeline(file_id, events)
         return {"file_id": file_id, "event": status, "batches": batches,
+                "steps": steps, "events": file_events, "related": related,
                 "describe": described, "raw": text}
+
+    @staticmethod
+    def timeline(file_id: str, events: list):
+        """The file's processing steps in order, each with the events recorded inside
+        that step (same span ID), plus every event about the file and related files.
+        Mailbox pickups are matched through the mailbox file name, so they are found
+        even when the operator did not know the file ID (e.g. after a restart)."""
+        mailbox_of = {}
+        for ev in events:
+            if ev.get("mailbox_file") and ev["event"] in ("entries_forwarded",
+                                                         "returns_delivered"):
+                mailbox_of[ev["mailbox_file"]] = ev.get("file_id")
+
+        def belongs(ev):
+            if ev.get("file_id") == file_id:
+                return True
+            return (not ev.get("file_id") and ev.get("mailbox_file")
+                    and mailbox_of.get(ev["mailbox_file"]) == file_id)
+
+        mine = [ev for ev in events if belongs(ev)]
+        steps = []
+        for ev in mine:
+            if ev["event"] == "file_step":
+                steps.append({**ev, "events": [x for x in mine if x is not ev
+                                               and x.get("span_id")
+                                               and x.get("span_id") == ev.get("span_id")]})
+        related = {"returns_files": [s["returns_file"] for s in steps
+                                     if s.get("returns_file")],
+                   "in_response_to": next((ev["file_id"] for ev in events
+                                           if ev["event"] == "file_step"
+                                           and ev.get("returns_file") == file_id), None)}
+        return steps, mine, related
 
     def mailbox_file(self, rt: str, name: str, picked_up: bool):
         if rt not in PARTICIPANTS or not SAFE.match(name):

@@ -29,6 +29,8 @@ from .settlement import ET
 DEFAULT_URL = default_url("operator")
 DEFAULT_KEY = PARTICIPANTS[FIRST_EXAMPLE_BANK]["api_key"]
 log = logging.getLogger("ach_sim.client")
+SUBMIT_REASON = {401: "unknown_api_key", 403: "origin_mismatch", 409: "duplicate",
+                 422: "failed_edits"}
 
 
 class OperatorClient:
@@ -51,9 +53,13 @@ class OperatorClient:
                 "ach.bank.routing": self.routing, "ach.bank.name": self.bank_name,
                 "ach.file.bytes": len(text), "ach.precheck": precheck}) as s:
             if precheck:
-                with telemetry.span("ach.client.precheck") as ps:
+                with telemetry.step("precheck", span_name="ach.client.precheck", logger=log,
+                                    **{"ach.bank.name": self.bank_name}) as ps:
                     res = nacha.validate(text)
-                    ps.set_attribute("ach.validation.errors", len(res.errors))
+                    ps.span.set_attribute("ach.validation.errors", len(res.errors))
+                    ps.detail["errors"] = len(res.errors)
+                    if not res.ok:
+                        ps.reject("failed_local_validation")
                 if not res.ok:
                     s.set_attribute("ach.file.status", "not sent")
                     telemetry.mark_error(s, "failed local pre-transmission validation")
@@ -62,8 +68,15 @@ class OperatorClient:
                                                  "ach.validation.errors": res.errors}})
                     return None, {"status": "not sent", "errors": res.errors,
                                   "note": "failed local pre-transmission validation"}
-            status, resp = self._req("POST", "/v1/files", text)
-            info = resp if isinstance(resp, dict) else {}
+            with telemetry.step("transmit", logger=log,
+                                **{"ach.bank.name": self.bank_name}) as ts:
+                status, resp = self._req("POST", "/v1/files", text)
+                info = resp if isinstance(resp, dict) else {}
+                ts.detail.update(http_status=status, file_id=info.get("file_id", ""))
+                if status >= 500:
+                    ts.fail(f"operator answered HTTP {status}")
+                elif status != 200:
+                    ts.reject(SUBMIT_REASON.get(status, f"http_{status}"))
             s.set_attributes({"ach.file.id": info.get("file_id", ""),
                               "ach.file.status": info.get("status", "")})
             level = logging.INFO if status == 200 else logging.WARNING
@@ -107,8 +120,13 @@ class OperatorClient:
         items = []
         for meta in box["files"]:
             name = meta["name"]
-            with telemetry.span("ach.client.process_file", **{"ach.mailbox.file": name}) as fs:
-                entry_log = self._process_file(name, ledger, save_dir, verbose, items, fs)
+            with telemetry.step("process_mailbox_file", span_name="ach.client.process_file",
+                                logger=log, **{"ach.mailbox.file": name,
+                                               "ach.bank.name": self.bank_name}) as fs:
+                entry_log = self._process_file(name, ledger, save_dir, verbose, items, fs.span)
+                fs.detail.update(mailbox_file=name, entries=len(entry_log or []))
+                if entry_log is None:
+                    fs.reject("invalid_mailbox_file")
             report["files"].append({"name": name, "valid": entry_log is not None,
                                     "entries": entry_log or []})
 

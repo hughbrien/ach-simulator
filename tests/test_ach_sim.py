@@ -198,11 +198,42 @@ class OperatorEndToEndTests(unittest.TestCase):
                       if json.loads(x)["event"] == "file_accepted"]
         self.assertEqual(submitters, [FIRST_EXAMPLE_BANK, SECOND_SAMPLE_BANK])
 
+    def steps(self, file_id):
+        return [(e["step"], e["status"]) for e in map(json.loads,
+                (Path(self.tmp.name) / "events.jsonl").read_text().splitlines())
+                if e["event"] == "file_step" and e["file_id"] == file_id]
+
+    def test_steps_recorded_in_order(self):
+        status, ack = self.c.send_file((EX / "03_web_consumer_debits.ach").read_text())
+        self.assertEqual(self.steps(ack["file_id"]),
+                         [("receive", "ok"), ("validate", "ok"), ("origin_check", "ok"),
+                          ("duplicate_check", "ok"), ("settle", "ok"), ("accept", "ok"),
+                          ("route", "ok"), ("dispatch", "ok")])
+        _, box = self.c.inbox()
+        name = box["files"][0]["name"]
+        self.c.download(name)
+        self.c.ack(name)
+        returns_id = ack["forwarded"][0]["rdfi_returns_file"]
+        self.assertEqual(self.steps(returns_id)[-2:], [("mailbox_download", "ok"),
+                                                       ("mailbox_ack", "ok")])
+
+    def test_rejected_file_stops_at_failing_step(self):
+        text = (EX / "01_ppd_payroll_credits.ach").read_text()
+        self.c.send_file(text)
+        status, resp = self.c.send_file(text)
+        self.assertEqual(status, 409)
+        self.assertEqual(self.steps(resp["file_id"])[-1], ("duplicate_check", "rejected"))
+        status, resp = self.c.send_file((EX / "90_INVALID_bad_entry_hash.ach").read_text(),
+                                        precheck=False)
+        self.assertEqual(self.steps(resp["file_id"]), [("receive", "ok"),
+                                                       ("validate", "rejected")])
+
     def test_validation_service_down(self):
         self.cluster.op.validation_url = "http://127.0.0.1:9"  # nothing listens there
         status, resp = self.c.send_file((EX / "01_ppd_payroll_credits.ach").read_text())
         self.assertEqual(status, 503)
         self.assertIn("validation service unavailable", resp["errors"][0])
+        self.assertEqual(self.steps(resp["file_id"])[-1], ("validate", "error"))
 
 
 @unittest.skipUnless(telemetry.HAVE_OTEL, "OpenTelemetry not installed (requirements-otel.txt)")
@@ -259,6 +290,24 @@ class TelemetryTests(unittest.TestCase):
         submitted = {s.attributes["ach.file.id"] for s in spans if s.name == "ach.file.submit"
                      and s.context.trace_id == trace_id}
         self.assertEqual(submitted, {ack["file_id"], ack["forwarded"][0]["rdfi_returns_file"]})
+
+        # Every operator step: a span, step metrics and a file_step log in the same trace.
+        op_steps = {"ach.step.receive", "ach.step.validate", "ach.step.origin_check",
+                    "ach.step.duplicate_check", "ach.step.settle", "ach.step.accept"}
+        self.assertTrue(op_steps <= in_trace, in_trace)
+        step_spans = {s.context.span_id for s in spans if s.context.trace_id == trace_id
+                      and "ach.step" in (s.attributes or {})}
+        counted = {p.attributes["ach.step"] for p in self.metric_points("ach.steps")}
+        self.assertTrue({"receive", "validate", "edit_checks", "settle", "settlement_dates",
+                         "route", "dispatch", "rdfi_decide", "send_returns", "precheck",
+                         "transmit"} <= counted, counted)
+        timed = {p.attributes["ach.step"] for p in self.metric_points("ach.step.duration")}
+        self.assertEqual(counted, timed)
+        step_logs = [r for r in (x.log_record for x in self.logs.get_finished_logs())
+                     if r.trace_id == trace_id and (r.attributes or {}).get("ach.step")]
+        self.assertTrue({r.span_id for r in step_logs} <= step_spans)
+        self.assertTrue({"validate", "settle", "edit_checks", "rdfi_decide"}
+                        <= {r.attributes["ach.step"] for r in step_logs})
 
         files = self.metric_points("ach.files")
         self.assertTrue(any(p.attributes["ach.result"] == "accepted" for p in files))
