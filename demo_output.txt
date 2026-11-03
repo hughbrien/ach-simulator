@@ -1,9 +1,12 @@
-Simulated ACH network running as 5 services (operator http://127.0.0.1:54030), data in /Users/hughbrien/Software/ach-simulator/sim_data, service logs in /Users/hughbrien/Software/ach-simulator/sim_data/logs
-  ach-validation                       port 54031
-  ach-settlement                       port 54032
-  ach-rdfi-second-sample-bank          port 54034
-  ach-rdfi-third-demo-credit-union     port 54035
-  ach-operator                         port 54030
+2026-11-02 16:52:59,346 WARNING ach_sim.client trace=-  file F20261102-0010 rejected (HTTP 409): duplicate file: 512345677-261102-0805-A (same origin, creation date/time and file ID modifier) was already accepted
+2026-11-02 16:52:59,347 WARNING ach_sim.client trace=-  file not sent: failed local validation: batch 1 (PPD DEMO PAYROLL CO): batch control entry hash is 1, computed 315000015
+2026-11-02 16:52:59,348 WARNING ach_sim.client trace=-  file F20261102-0011 rejected (HTTP 422): batch 1 (PPD DEMO PAYROLL CO): batch control entry hash is 1, computed 315000015
+Simulated ACH network running as 5 services (operator http://127.0.0.1:59602), data in /Users/hughbrien/Software/ach-simulator/sim_data, service logs in /Users/hughbrien/Software/ach-simulator/sim_data/logs
+  ach-validation                       port 59603
+  ach-settlement                       port 59604
+  ach-rdfi-second-sample-bank          port 59606
+  ach-rdfi-third-demo-credit-union     port 59607
+  ach-operator                         port 59602
 
 ====================================================================================================
 OUTBOUND: First Example Bank transmits its origination files (08:30 ET)
@@ -11,34 +14,34 @@ OUTBOUND: First Example Bank transmits its origination files (08:30 ET)
 
 > send 01_ppd_payroll_credits.ach
   -> HTTP 200  accepted  F20261102-0001
-     batch 1 PPD ACME PAYROLL CO  6 entries  settles 2026-11-03 window FUTURE-DATED
+     batch 1 PPD DEMO PAYROLL CO  6 entries  settles 2026-11-03 window FUTURE-DATED
 
 > send 02_ccd_vendor_debits_with_remittance.ach
   -> HTTP 200  accepted  F20261102-0004
-     batch 1 CCD GLOBEX DIST INC  3 entries  settles 2026-11-03 window FUTURE-DATED
+     batch 1 CCD SAMPLE DIST INC  3 entries  settles 2026-11-03 window FUTURE-DATED
 
 > send 03_web_consumer_debits.ach
   -> HTTP 200  accepted  F20261102-0006
-     batch 1 WEB STREAMLY MEDIA   4 entries  settles 2026-11-03 window FUTURE-DATED
+     batch 1 WEB SAMPLE MEDIA     4 entries  settles 2026-11-03 window FUTURE-DATED
 
 > send 04_same_day_ppd_credits.ach at 09:15 ET (before the 10:30 deadline)
   -> HTTP 200  accepted  F20261102-0008
-     batch 1 PPD ACME PAYROLL CO  2 entries  settles 2026-11-02 window SDA-1
+     batch 1 PPD DEMO PAYROLL CO  2 entries  settles 2026-11-02 window SDA-1
 
 > send 91_same_day_over_1m_limit.ach (same-day effective date, $1.25M entry)
   -> HTTP 200  accepted  F20261102-0009
-     batch 1 CCD ACME HOLDINGS    1 entries  settles 2026-11-03 window NEXT-DAY
-     warning: batch 1 (CCD ACME HOLDINGS) trace 123456780000001: $1,250,000.00 exceeds the $1M Same Day per-payment limit; not Same Day eligible
+     batch 1 CCD DEMO HOLDINGS    1 entries  settles 2026-11-03 window NEXT-DAY
+     warning: batch 1 (CCD DEMO HOLDINGS) trace 512345670000001: $1,250,000.00 exceeds the $1M Same Day per-payment limit; not Same Day eligible
 
 > re-send 01_ppd_payroll_credits.ach (operator duplicate-file check)
   -> HTTP 409  rejected  F20261102-0010
-     error: duplicate file: 123456780-261102-0805-A (same origin, creation date/time and file ID modifier) was already accepted
+     error: duplicate file: 512345677-261102-0805-A (same origin, creation date/time and file ID modifier) was already accepted
 
 > send 90_INVALID_bad_entry_hash.ach with local pre-check (blocked at the bank)
-  -> not sent: ['batch 1 (PPD ACME PAYROLL CO): batch control entry hash is 1, computed 99900015']
+  -> not sent: ['batch 1 (PPD DEMO PAYROLL CO): batch control entry hash is 1, computed 315000015']
 > send it again with the pre-check skipped (rejected by the operator)
   -> HTTP 422  rejected  F20261102-0011
-     error: batch 1 (PPD ACME PAYROLL CO): batch control entry hash is 1, computed 99900015
+     error: batch 1 (PPD DEMO PAYROLL CO): batch control entry hash is 1, computed 315000015
 
 ====================================================================================================
 INBOUND: Third Demo Credit Union originates to First Example Bank customers
@@ -46,121 +49,121 @@ INBOUND: Third Demo Credit Union originates to First Example Bank customers
 
 > TDCU sends 07_inbound_from_third_demo_cu.ach
   -> HTTP 200  accepted  F20261102-0012
-     batch 1 PPD HARBORVIEW CLINI 3 entries  settles 2026-11-03 window FUTURE-DATED
-     batch 2 CCD HARBORVIEW CLINI 1 entries  settles 2026-11-03 window FUTURE-DATED
+     batch 1 PPD EXAMPLE CLINIC   3 entries  settles 2026-11-03 window FUTURE-DATED
+     batch 2 CCD EXAMPLE CLINIC   1 entries  settles 2026-11-03 window FUTURE-DATED
 
 ====================================================================================================
 INBOUND: First Example Bank pulls its mailbox (16:00 ET)
 ====================================================================================================
-  mailbox: 20261102T0830_00003_from_111000025.ach
-  mailbox: 20261102T0830_00004_from_222000037.ach
-  mailbox: 20261102T0830_00007_from_111000025.ach
-  mailbox: 20261102T0830_00009_from_111000025.ach
-  mailbox: 20261102T0840_00013_from_222000037.ach
+  mailbox: 20261102T0830_00003_from_520000027.ach
+  mailbox: 20261102T0830_00004_from_530000033.ach
+  mailbox: 20261102T0830_00007_from_520000027.ach
+  mailbox: 20261102T0830_00009_from_520000027.ach
+  mailbox: 20261102T0840_00013_from_530000033.ach
 
---- 20261102T0830_00003_from_111000025.ach (valid) ---
-File  SIM ACH OPERATOR (099900014) -> FIRST EXAMPLE BANK (123456780)  created 2026-11-02 08:30  modifier D
-  Batch 1  COR  class 220  ACME PAYROLL CO [1234567890] 'PAYROLL'  effective 261103 settles day 307
-    111000020000001  21 Return/NOC of checking credit  123456780 acct 1000777001                 $0.00  OMAR FIELDING
-        NOC C05 Incorrect Transaction Code: corrected '32' (original trace 123456780000002)
-  Batch 2  PPD  class 220  ACME PAYROLL CO [1234567890] 'PAYROLL'  effective 261103 settles day 307
-    111000020000002  21 Return/NOC of checking credit  123456780 acct 1000555123             $1,725.40  LENA MARSH
-        RETURN R02 Account Closed (original trace 123456780000003)
+--- 20261102T0830_00003_from_520000027.ach (valid) ---
+File  SIM ACH OPERATOR (599900019) -> FIRST EXAMPLE BANK (512345677)  created 2026-11-02 08:30  modifier D
+  Batch 1  COR  class 220  DEMO PAYROLL CO [1234567890] 'PAYROLL'  effective 261103 settles day 307
+    520000020000001  21 Return/NOC of checking credit  512345677 acct 1000777001                 $0.00  OMAR FIELDING
+        NOC C05 Incorrect Transaction Code: corrected '32' (original trace 512345670000002)
+  Batch 2  PPD  class 220  DEMO PAYROLL CO [1234567890] 'PAYROLL'  effective 261103 settles day 307
+    520000020000002  21 Return/NOC of checking credit  512345677 acct 1000555123             $1,725.40  LENA MARSH
+        RETURN R02 Account Closed (original trace 512345670000003)
   Totals: 2 entries, debits $0.00, credits $1,725.40
 
---- 20261102T0830_00004_from_222000037.ach (valid) ---
-File  SIM ACH OPERATOR (099900014) -> FIRST EXAMPLE BANK (123456780)  created 2026-11-02 08:30  modifier E
-  Batch 1  COR  class 220  ACME PAYROLL CO [1234567890] 'PAYROLL'  effective 261103 settles day 307
-    222000030000001  21 Return/NOC of checking credit  123456780 acct 55501234                   $0.00  DEVON PARK
-        NOC C01 Incorrect DFI Account Number: corrected '55501243' (original trace 123456780000004)
+--- 20261102T0830_00004_from_530000033.ach (valid) ---
+File  SIM ACH OPERATOR (599900019) -> FIRST EXAMPLE BANK (512345677)  created 2026-11-02 08:30  modifier E
+  Batch 1  COR  class 220  DEMO PAYROLL CO [1234567890] 'PAYROLL'  effective 261103 settles day 307
+    530000030000001  21 Return/NOC of checking credit  512345677 acct 55501234                   $0.00  DEVON PARK
+        NOC C01 Incorrect DFI Account Number: corrected '55501243' (original trace 512345670000004)
   Totals: 1 entries, debits $0.00, credits $0.00
 
---- 20261102T0830_00007_from_111000025.ach (valid) ---
-File  SIM ACH OPERATOR (099900014) -> FIRST EXAMPLE BANK (123456780)  created 2026-11-02 08:30  modifier H
-  Batch 1  CCD  class 225  GLOBEX DIST INC [1987654321] 'INVOICES'  effective 261103 settles day 307
-    111000020000001  26 Return/NOC of checking debit   123456780 acct 2000199900             $4,380.25  BLUE HERON DESIGN INC
-        RETURN R29 Corporate Customer Advises Not Authorized (original trace 123456780000002)
+--- 20261102T0830_00007_from_520000027.ach (valid) ---
+File  SIM ACH OPERATOR (599900019) -> FIRST EXAMPLE BANK (512345677)  created 2026-11-02 08:30  modifier H
+  Batch 1  CCD  class 225  SAMPLE DIST INC [1987654321] 'INVOICES'  effective 261103 settles day 307
+    520000020000001  26 Return/NOC of checking debit   512345677 acct 2000199900             $4,380.25  SAMPLE DESIGN INC
+        RETURN R29 Corporate Customer Advises Not Authorized (original trace 512345670000002)
   Totals: 1 entries, debits $4,380.25, credits $0.00
 
---- 20261102T0830_00009_from_111000025.ach (valid) ---
-File  SIM ACH OPERATOR (099900014) -> FIRST EXAMPLE BANK (123456780)  created 2026-11-02 08:30  modifier J
-  Batch 1  WEB  class 225  STREAMLY MEDIA [9876500001] 'SUBSCRIPT'  effective 261103 settles day 307
-    111000020000001  26 Return/NOC of checking debit   123456780 acct 3000400401                $89.99  SAM RIVERA
-        RETURN R01 Insufficient Funds (original trace 123456780000002)
-    111000020000002  26 Return/NOC of checking debit   123456780 acct 3000400402                $14.99  PRIYA NAIR
-        RETURN R10 Customer Advises Originator is Not Known and/or Not Authorized (original trace 123456780000003)
-    111000020000003  26 Return/NOC of checking debit   123456780 acct 9999000001                $14.99  CHRIS UNKNOWN
-        RETURN R03 No Account/Unable to Locate Account (original trace 123456780000004)
+--- 20261102T0830_00009_from_520000027.ach (valid) ---
+File  SIM ACH OPERATOR (599900019) -> FIRST EXAMPLE BANK (512345677)  created 2026-11-02 08:30  modifier J
+  Batch 1  WEB  class 225  SAMPLE MEDIA [9876500001] 'SUBSCRIPT'  effective 261103 settles day 307
+    520000020000001  26 Return/NOC of checking debit   512345677 acct 3000400401                $89.99  SAM RIVERA
+        RETURN R01 Insufficient Funds (original trace 512345670000002)
+    520000020000002  26 Return/NOC of checking debit   512345677 acct 3000400402                $14.99  PRIYA NAIR
+        RETURN R10 Customer Advises Originator is Not Known and/or Not Authorized (original trace 512345670000003)
+    520000020000003  26 Return/NOC of checking debit   512345677 acct 9999000001                $14.99  CHRIS UNKNOWN
+        RETURN R03 No Account/Unable to Locate Account (original trace 512345670000004)
   Totals: 3 entries, debits $119.97, credits $0.00
 
---- 20261102T0840_00013_from_222000037.ach (valid) ---
-File  SIM ACH OPERATOR (099900014) -> FIRST EXAMPLE BANK (123456780)  created 2026-11-02 08:40  modifier N
-  Batch 1  PPD  class 220  HARBORVIEW CLINI [3456789012] 'PAYROLL'  effective 261103 settles day 307
-    222000030000001  22 Checking credit                123456780 acct 70001111               $3,250.00  KIM NGUYEN
-    222000030000002  22 Checking credit                123456780 acct 70002222               $2,875.50  LUIS ORTEGA
-    222000030000003  22 Checking credit                123456780 acct 70009999               $1,990.00  TERRY WALSH
-  Batch 2  CCD  class 225  HARBORVIEW CLINI [3456789012] 'RENT'  effective 261103 settles day 307
-    222000030000004  27 Checking debit                 123456780 acct 70005000               $8,400.00  BAYSIDE PROPERTIES
+--- 20261102T0840_00013_from_530000033.ach (valid) ---
+File  SIM ACH OPERATOR (599900019) -> FIRST EXAMPLE BANK (512345677)  created 2026-11-02 08:40  modifier N
+  Batch 1  PPD  class 220  EXAMPLE CLINIC [3456789012] 'PAYROLL'  effective 261103 settles day 307
+    530000030000001  22 Checking credit                512345677 acct 70001111               $3,250.00  KIM NGUYEN
+    530000030000002  22 Checking credit                512345677 acct 70002222               $2,875.50  LUIS ORTEGA
+    530000030000003  22 Checking credit                512345677 acct 70009999               $1,990.00  TERRY WALSH
+  Batch 2  CCD  class 225  EXAMPLE CLINIC [3456789012] 'RENT'  effective 261103 settles day 307
+    530000030000004  27 Checking debit                 512345677 acct 70005000               $8,400.00  BAYSIDE PROPERTIES
         addenda 05: RENT NOVEMBER 2026 SUITE 300
   Totals: 4 entries, debits $8,400.00, credits $8,115.50
 
 --- returns/NOCs we are sending back ---
-File  FIRST EXAMPLE BANK (123456780) -> SIM ACH OPERATOR (099900014)  created 2026-11-02 16:00  modifier R
-  Batch 1  COR  class 220  HARBORVIEW CLINI [3456789012] 'PAYROLL'  effective 261103
-    123456780000001  21 Return/NOC of checking credit  222000037 acct 70002222                   $0.00  LUIS ORTEGA
-        NOC C05 Incorrect Transaction Code: corrected '32' (original trace 222000030000002)
-  Batch 2  PPD  class 220  HARBORVIEW CLINI [3456789012] 'PAYROLL'  effective 261103
-    123456780000002  21 Return/NOC of checking credit  222000037 acct 70009999               $1,990.00  TERRY WALSH
-        RETURN R03 No Account/Unable to Locate Account (original trace 222000030000003)
-  Batch 3  CCD  class 225  HARBORVIEW CLINI [3456789012] 'RENT'  effective 261103
-    123456780000003  26 Return/NOC of checking debit   222000037 acct 70005000               $8,400.00  BAYSIDE PROPERTIES
-        RETURN R01 Insufficient Funds (original trace 222000030000004)
+File  FIRST EXAMPLE BANK (512345677) -> SIM ACH OPERATOR (599900019)  created 2026-11-02 16:00  modifier R
+  Batch 1  COR  class 220  EXAMPLE CLINIC [3456789012] 'PAYROLL'  effective 261103
+    512345670000001  21 Return/NOC of checking credit  530000033 acct 70002222                   $0.00  LUIS ORTEGA
+        NOC C05 Incorrect Transaction Code: corrected '32' (original trace 530000030000002)
+  Batch 2  PPD  class 220  EXAMPLE CLINIC [3456789012] 'PAYROLL'  effective 261103
+    512345670000002  21 Return/NOC of checking credit  530000033 acct 70009999               $1,990.00  TERRY WALSH
+        RETURN R03 No Account/Unable to Locate Account (original trace 530000030000003)
+  Batch 3  CCD  class 225  EXAMPLE CLINIC [3456789012] 'RENT'  effective 261103
+    512345670000003  26 Return/NOC of checking debit   530000033 acct 70005000               $8,400.00  BAYSIDE PROPERTIES
+        RETURN R01 Insufficient Funds (original trace 530000030000004)
   Totals: 3 entries, debits $8,400.00, credits $1,990.00
 
 Posting results:
-  20261102T0830_00003_from_111000025.ach
-     111000020000001  NOC C05 on our trace 123456780000002
-     111000020000002  return R02 on our trace 123456780000003
-  20261102T0830_00004_from_222000037.ach
-     222000030000001  NOC C01 on our trace 123456780000004
-  20261102T0830_00007_from_111000025.ach
-     111000020000001  return R29 on our trace 123456780000002
-  20261102T0830_00009_from_111000025.ach
-     111000020000001  return R01 on our trace 123456780000002
-     111000020000002  return R10 on our trace 123456780000003
-     111000020000003  return R03 on our trace 123456780000004
-  20261102T0840_00013_from_222000037.ach
-     222000030000001  posted
-     222000030000002  posted
-     222000030000002  NOC C05 Incorrect Transaction Code -> 32
-     222000030000003  return R03 No Account/Unable to Locate Account
-     222000030000004  return R01 Insufficient Funds
+  20261102T0830_00003_from_520000027.ach
+     520000020000001  NOC C05 on our trace 512345670000002
+     520000020000002  return R02 on our trace 512345670000003
+  20261102T0830_00004_from_530000033.ach
+     530000030000001  NOC C01 on our trace 512345670000004
+  20261102T0830_00007_from_520000027.ach
+     520000020000001  return R29 on our trace 512345670000002
+  20261102T0830_00009_from_520000027.ach
+     520000020000001  return R01 on our trace 512345670000002
+     520000020000002  return R10 on our trace 512345670000003
+     520000020000003  return R03 on our trace 512345670000004
+  20261102T0840_00013_from_530000033.ach
+     530000030000001  posted
+     530000030000002  posted
+     530000030000002  NOC C05 Incorrect Transaction Code -> 32
+     530000030000003  return R03 No Account/Unable to Locate Account
+     530000030000004  return R01 Insufficient Funds
 
 Returns file transmitted back through the operator:
   -> HTTP 200  accepted  F20261102-0013
-     batch 1 COR HARBORVIEW CLINI 1 entries  settles 2026-11-03 window FUTURE-DATED
-     batch 2 PPD HARBORVIEW CLINI 1 entries  settles 2026-11-03 window FUTURE-DATED
-     batch 3 CCD HARBORVIEW CLINI 1 entries  settles 2026-11-03 window FUTURE-DATED
+     batch 1 COR EXAMPLE CLINIC   1 entries  settles 2026-11-03 window FUTURE-DATED
+     batch 2 PPD EXAMPLE CLINIC   1 entries  settles 2026-11-03 window FUTURE-DATED
+     batch 3 CCD EXAMPLE CLINIC   1 entries  settles 2026-11-03 window FUTURE-DATED
 
 Ledger balances after posting:
   70001111  KIM NGUYEN                     $18,450.00
   70002222  LUIS ORTEGA                    $3,675.50
-  70005000  HARBORVIEW CLINIC OPERATING    $5,000.00
+  70005000  EXAMPLE CLINIC OPERATING       $5,000.00
 
 ====================================================================================================
 TDCU picks up the returns First Example Bank sent
 ====================================================================================================
-  20261102T1600_00014_from_123456780.ach
-File  SIM ACH OPERATOR (099900014) -> THIRD DEMO CREDIT UNION (222000037)  created 2026-11-02 16:00  modifier O
-  Batch 1  COR  class 220  HARBORVIEW CLINI [3456789012] 'PAYROLL'  effective 261103 settles day 307
-    123456780000001  21 Return/NOC of checking credit  222000037 acct 70002222                   $0.00  LUIS ORTEGA
-        NOC C05 Incorrect Transaction Code: corrected '32' (original trace 222000030000002)
-  Batch 2  PPD  class 220  HARBORVIEW CLINI [3456789012] 'PAYROLL'  effective 261103 settles day 307
-    123456780000002  21 Return/NOC of checking credit  222000037 acct 70009999               $1,990.00  TERRY WALSH
-        RETURN R03 No Account/Unable to Locate Account (original trace 222000030000003)
-  Batch 3  CCD  class 225  HARBORVIEW CLINI [3456789012] 'RENT'  effective 261103 settles day 307
-    123456780000003  26 Return/NOC of checking debit   222000037 acct 70005000               $8,400.00  BAYSIDE PROPERTIES
-        RETURN R01 Insufficient Funds (original trace 222000030000004)
+  20261102T1600_00014_from_512345677.ach
+File  SIM ACH OPERATOR (599900019) -> THIRD DEMO CREDIT UNION (530000033)  created 2026-11-02 16:00  modifier O
+  Batch 1  COR  class 220  EXAMPLE CLINIC [3456789012] 'PAYROLL'  effective 261103 settles day 307
+    512345670000001  21 Return/NOC of checking credit  530000033 acct 70002222                   $0.00  LUIS ORTEGA
+        NOC C05 Incorrect Transaction Code: corrected '32' (original trace 530000030000002)
+  Batch 2  PPD  class 220  EXAMPLE CLINIC [3456789012] 'PAYROLL'  effective 261103 settles day 307
+    512345670000002  21 Return/NOC of checking credit  530000033 acct 70009999               $1,990.00  TERRY WALSH
+        RETURN R03 No Account/Unable to Locate Account (original trace 530000030000003)
+  Batch 3  CCD  class 225  EXAMPLE CLINIC [3456789012] 'RENT'  effective 261103 settles day 307
+    512345670000003  26 Return/NOC of checking debit   530000033 acct 70005000               $8,400.00  BAYSIDE PROPERTIES
+        RETURN R01 Insufficient Funds (original trace 530000030000004)
   Totals: 3 entries, debits $8,400.00, credits $1,990.00
 
 ====================================================================================================

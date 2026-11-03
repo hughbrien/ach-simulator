@@ -11,7 +11,7 @@ a real RDFI does.
     GET  /v1/accounts    current balances
     GET  /v1/health
 
-    python3 -m ach_sim.rdfi_service --routing 111000025 --port 8773 \\
+    python3 -m ach_sim.rdfi_service --routing 520000027 --port 8773 \\
         --operator-url http://127.0.0.1:8770
 """
 from __future__ import annotations
@@ -28,7 +28,9 @@ from .participants import OPERATOR_NAME, OPERATOR_ROUTING, PARTICIPANTS, RDFI_AC
 from .service import DEFAULT_PORTS, HOST, TracedHandler, call, default_url, run_service, slug
 from .settlement import ET
 
-MODIFIERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+# A-R only: S-9 are left to the bank's own originated files (see feeder.py), so its
+# return files and its outbound files can never share a duplicate-check key.
+MODIFIERS = "ABCDEFGHIJKLMNOPQR"
 RETURN_TX = ("21", "26", "31", "36")
 log = logging.getLogger("ach_sim.rdfi")
 

@@ -6,12 +6,12 @@ validation, but they are not meant to identify any real institution.
 """
 from .nacha import routing
 
-OPERATOR_ROUTING = routing("09990001")
+OPERATOR_ROUTING = routing("59990001")
 OPERATOR_NAME = "SIM ACH OPERATOR"
 
-FIRST_EXAMPLE_BANK = routing("12345678")   # the ODFI you play with the client
-SECOND_SAMPLE_BANK = routing("11100002")   # RDFI simulated by the operator
-THIRD_DEMO_CU = routing("22200003")        # RDFI simulated by the operator; also originates
+FIRST_EXAMPLE_BANK = routing("51234567")   # the ODFI you play with the client
+SECOND_SAMPLE_BANK = routing("52000002")   # RDFI simulated by the operator
+THIRD_DEMO_CU = routing("53000003")        # RDFI simulated by the operator; also originates
 
 # mode "mailbox": files addressed to this bank wait in its mailbox for the client to pull.
 # mode "auto":    the simulator plays this bank's RDFI and decides post/return/NOC itself
@@ -41,9 +41,9 @@ RDFI_ACCOUNTS = {
                        "balance": 9_000_00},  # payroll sent as checking -> C05
         "1000555123": {"holder": "LENA MARSH", "status": "closed", "type": "checking",
                        "balance": 0},          # -> R02
-        "2000188800": {"holder": "NORTHWIND SUPPLY LLC", "status": "open",
+        "2000188800": {"holder": "EXAMPLE SUPPLY LLC", "status": "open",
                        "type": "checking", "balance": 50_000_00},
-        "2000199900": {"holder": "BLUE HERON DESIGN INC", "status": "open",
+        "2000199900": {"holder": "SAMPLE DESIGN INC", "status": "open",
                        "type": "checking", "balance": 80_000_00,
                        "disputes": ["1987654321"]},  # CCD debit -> R29
         "3000400401": {"holder": "SAM RIVERA", "status": "open", "type": "checking",
@@ -58,7 +58,7 @@ RDFI_ACCOUNTS = {
                      "balance": 700_00},
         "55507777": {"holder": "MARCO DIAZ", "status": "open", "type": "checking",
                      "balance": 25_000_00},
-        "55600001": {"holder": "COASTAL FREIGHT CO", "status": "open", "type": "checking",
+        "55600001": {"holder": "DEMO FREIGHT CO", "status": "open", "type": "checking",
                      "balance": 120_000_00},
     },
 }

@@ -32,10 +32,10 @@ def mutate(text, line_prefix, start, end, new):
 
 class RoutingTests(unittest.TestCase):
     def test_known_check_digits(self):
-        # Published routing numbers whose check digits are well known.
-        for r in ("011000015", "021000021", "123456780"):
+        # Fictitious numbers (unassigned 5x prefix) with hand-computed check digits.
+        for r in ("512345677", "520000027", "599900019"):
             self.assertTrue(nacha.valid_routing(r), r)
-        self.assertFalse(nacha.valid_routing("123456789"))
+        self.assertFalse(nacha.valid_routing("512345678"))
 
 
 class ExampleFileTests(unittest.TestCase):
@@ -248,6 +248,7 @@ class TelemetryTests(unittest.TestCase):
         root = next(s for s in spans if s.name == "ach.client.send_file")
         trace_id = root.context.trace_id
         in_trace = {s.name for s in spans if s.context.trace_id == trace_id}
+        self.assertEqual(root.resource.attributes["Application_ID"], "ach-simulator")
         self.assertTrue({"POST /v1/files", "ach.file.submit", "POST /v1/validate",
                          "ach.validate", "POST /v1/settle", "ach.settle", "ach.rdfi.route",
                          "ach.rdfi.dispatch", "POST /v1/inbound", "ach.rdfi.process",

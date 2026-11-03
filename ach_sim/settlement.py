@@ -1,6 +1,6 @@
-"""Settlement calendar: Fed business days and FedACH-style processing windows.
+"""Settlement calendar: banking business days and Same Day ACH processing windows.
 
-Window deadlines are the FedACH Same Day submission deadlines (Eastern Time).
+Window deadlines are the Same Day ACH submission deadlines (Eastern Time).
 The simulator uses them to label which window a file landed in; it does not
 model every operator schedule.
 """
@@ -11,9 +11,9 @@ from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
 
-# Federal Reserve holidays. A holiday falling on Sunday is observed Monday;
+# US banking holidays. A holiday falling on Sunday is observed Monday;
 # one falling on Saturday is NOT observed on the Friday before.
-FED_HOLIDAYS = {
+BANK_HOLIDAYS = {
     date(2026, 1, 1), date(2026, 1, 19), date(2026, 2, 16), date(2026, 5, 25),
     date(2026, 6, 19), date(2026, 9, 7), date(2026, 10, 12), date(2026, 11, 11),
     date(2026, 11, 26), date(2026, 12, 25),
@@ -30,7 +30,7 @@ SAME_DAY_WINDOWS = [  # (label, submission deadline ET)
 
 
 def is_business_day(d: date) -> bool:
-    return d.weekday() < 5 and d not in FED_HOLIDAYS
+    return d.weekday() < 5 and d not in BANK_HOLIDAYS
 
 
 def next_business_day(d: date) -> date:

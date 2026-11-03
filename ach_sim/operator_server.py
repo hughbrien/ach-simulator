@@ -20,7 +20,7 @@ Simulated clock: optional header  X-Sim-Time: 2026-11-02T09:15:00-05:00
 
     python3 -m ach_sim.operator_server --port 8770 --data-dir sim_data \\
         --validation-url http://127.0.0.1:8771 --settlement-url http://127.0.0.1:8772 \\
-        --rdfi 111000025=http://127.0.0.1:8773 --rdfi 222000037=http://127.0.0.1:8774
+        --rdfi 520000027=http://127.0.0.1:8773 --rdfi 530000033=http://127.0.0.1:8774
 Every option defaults to the ports above, so `python3 -m ach_sim.cluster` is the
 easy way to start the whole set.
 """
@@ -77,10 +77,16 @@ class Operator:
         self.rdfi_urls = rdfi_urls if rdfi_urls is not None else default_rdfi_urls()
         self.files: dict = {}
         self.seen_keys: set = set()
-        self.counter = 0
-        self.out_counter = 0
         self.lock = threading.Lock()
         self.events_path = self.data / "events.jsonl"
+        # Resume numbering from an existing data dir so a restart never reuses
+        # a file ID or mailbox file name (and so never overwrites earlier files).
+        self.counter = max((int(m.group(1)) for m in (
+            re.search(r"-(\d+)\.ach$", p.name) for p in (self.data / "received").glob("F*.ach"))
+            if m), default=0)
+        self.out_counter = max((int(m.group(1)) for m in (
+            re.match(r"\d{8}T\d{4}_(\d+)_", p.name)
+            for p in (self.data / "mailbox").glob("*/**/*.ach")) if m), default=0)
 
     # -- helpers ------------------------------------------------------------
     def event(self, kind: str, **details):

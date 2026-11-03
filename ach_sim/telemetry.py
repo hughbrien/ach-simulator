@@ -27,6 +27,7 @@ from contextlib import contextmanager
 
 SERVICE_NAMESPACE = "ach-simulator"
 SERVICE_VERSION = "1.1.0"
+APPLICATION_ID = "ach-simulator"   # Application_ID tag on every service's resource
 log = logging.getLogger("ach_sim")
 
 try:
@@ -338,7 +339,7 @@ def setup(service_name: str, *, resource_attrs: dict | None = None, span_exporte
         return False
 
     attrs = {"service.namespace": SERVICE_NAMESPACE, "service.version": SERVICE_VERSION,
-             **(resource_attrs or {})}
+             "Application_ID": APPLICATION_ID, **(resource_attrs or {})}
     if not os.environ.get("OTEL_SERVICE_NAME"):
         attrs["service.name"] = service_name
     resource = Resource.create(attrs)

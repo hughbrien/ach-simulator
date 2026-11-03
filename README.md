@@ -40,6 +40,9 @@ python3 -m ach_sim.client validate examples/03_web_consumer_debits.ach
 python3 -m ach_sim.client --sim-time 2026-11-02T08:30:00-05:00 send examples/03_web_consumer_debits.ach
 python3 -m ach_sim.client inbox
 python3 -m ach_sim.client --sim-time 2026-11-02T16:00:00-05:00 receive --ledger examples/first_example_bank_ledger.json
+
+# or, instead of a single bank: a continuous random feed for an hour
+python3 -m ach_sim.feeder --duration 3600 --interval 15
 python3 -m ach_sim.client --key tdcu-demo-key send examples/07_inbound_from_third_demo_cu.ach
 ```
 
@@ -76,6 +79,14 @@ can also be started on its own (`python3 -m ach_sim.<module> --help`); the defau
 let them find each other on the ports above. `run_demo.py` starts the same set on
 free ports with logs in `sim_data/logs/`.
 
+`python3 -m ach_sim.feeder` keeps a running cluster busy: random payroll, vendor
+debit, subscription and Same Day files from First Example Bank, inbound payroll from
+Third Demo CU, a few corrupted files (`--corrupt-rate`), and a mailbox pull every
+minute that posts to a working copy of the ledger (`sim_data/first_example_bank_ledger.json`)
+and returns what it cannot post. It uses the real clock, so after 16:45 ET Same Day
+files settle next day. The operator resumes file numbering from an existing data
+directory, so the cluster can be restarted on `sim_data/` without overwriting files.
+
 A simulated RDFI answers the way a real one does: it transmits its returns and NOCs
 to the operator as a file of its own, under its own API key. So the file IDs in an
 acknowledgment skip numbers (the receiving banks' return files are submissions
@@ -92,7 +103,7 @@ acknowledgment carries a warning.
 ach_sim/
   nacha.py            record layouts, builder, parser, validator, describe()
   rdfi.py             RDFI decisions (post / return / NOC) and return/NOC file builder
-  settlement.py       Fed business days, holidays, Same Day windows
+  settlement.py       banking business days, holidays, Same Day windows
   participants.py     simulated banks, API keys, receiver accounts
   operator_server.py  ach-operator: the gateway (HTTP)
   validation_service.py, settlement_service.py, rdfi_service.py   the other services
@@ -111,10 +122,10 @@ tests/                unit and end-to-end tests
 
 | Role | Name | Routing | API key | Behaviour |
 |---|---|---|---|---|
-| ACH Operator | SIM ACH OPERATOR | 099900014 | | Receives, edits, routes, settles |
-| ODFI / RDFI (you) | FIRST EXAMPLE BANK | 123456780 | `feb-demo-key` | Files wait in its mailbox for the client |
-| RDFI | SECOND SAMPLE BANK | 111000025 | `ssb-demo-key` | Simulated by the operator |
-| RDFI / ODFI | THIRD DEMO CREDIT UNION | 222000037 | `tdcu-demo-key` | Simulated by the operator; also originates file 07 |
+| ACH Operator | SIM ACH OPERATOR | 599900019 | | Receives, edits, routes, settles |
+| ODFI / RDFI (you) | FIRST EXAMPLE BANK | 512345677 | `feb-demo-key` | Files wait in its mailbox for the client |
+| RDFI | SECOND SAMPLE BANK | 520000027 | `ssb-demo-key` | Simulated by the operator |
+| RDFI / ODFI | THIRD DEMO CREDIT UNION | 530000033 | `tdcu-demo-key` | Simulated by the operator; also originates file 07 |
 
 Receiver accounts at the operator-simulated banks are in `participants.py`. Each
 one is set up to produce a specific outcome (closed account, insufficient funds,
@@ -179,7 +190,7 @@ creation date, creation time and file ID modifier match a file already accepted.
 ### What the operator does with an accepted file
 
 1. Sends the file to the validation service; any edit error rejects it (422).
-2. Asks the settlement service for each batch's settlement date (written as a Julian day in batch header positions 76 to 78) and a window: `SDA-1` / `SDA-2` / `SDA-3` (Same Day deadlines 10:30, 14:45, 16:45 ET), `NEXT-DAY`, or `FUTURE-DATED`. Weekends and Fed holidays are skipped.
+2. Asks the settlement service for each batch's settlement date (written as a Julian day in batch header positions 76 to 78) and a window: `SDA-1` / `SDA-2` / `SDA-3` (Same Day deadlines 10:30, 14:45, 16:45 ET), `NEXT-DAY`, or `FUTURE-DATED`. Weekends and banking holidays are skipped.
 3. Splits entries by RDFI and writes one forwarded file per RDFI into its mailbox (operator as immediate origin, settlement date filled in).
 4. Hands the forwarded file for each simulated bank to its RDFI service, which decides each entry: R03 unknown account, R02 closed, R16 frozen, R10 (consumer SEC) or R29 (CCD) for a disputed originator, R01 debit over the balance; otherwise posts it, and sends NOC C05 for a checking/savings mismatch or the account's configured NOC.
 5. The RDFI service builds a return/NOC file (returns in batches mirroring the original batch header, NOCs in COR batches, trace numbers prefixed with the RDFI's ID) and submits it to the operator, which edits and routes it to the ODFI's mailbox like any other file.
@@ -206,7 +217,9 @@ trace numbers, so the log can feed an observability tool.
 ## Observability
 
 The operator, the bank client and `run_demo.py` emit OpenTelemetry metrics, logs
-and traces. Without the OpenTelemetry packages every call is a no-op.
+and traces. Without the OpenTelemetry packages every call is a no-op. Every
+service's telemetry carries the resource attributes `Application_ID=ach-simulator`
+and `service.namespace=ach-simulator`, so one filter finds the whole application.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate

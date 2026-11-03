@@ -18,7 +18,7 @@ from ach_sim.participants import (FIRST_EXAMPLE_BANK as FEB, SECOND_SAMPLE_BANK 
                                   RDFI_ACCOUNTS)
 
 OUT = Path(__file__).resolve().parent / "examples"
-DAY = datetime(2026, 11, 2)      # Monday, a Fed business day
+DAY = datetime(2026, 11, 2)      # Monday, a banking business day
 TODAY = "261102"                 # Same Day effective date
 NEXT = "261103"                  # standard next-day effective date
 
@@ -32,7 +32,7 @@ def outbound_file(minute: int, modifier: str = "A") -> nacha.AchFile:
 
 def ppd_payroll():
     f = outbound_file(5, "A")
-    b = f.add_batch(company_name="ACME PAYROLL CO", company_id="1234567890", sec_code="PPD",
+    b = f.add_batch(company_name="DEMO PAYROLL CO", company_id="1234567890", sec_code="PPD",
                     entry_description="PAYROLL", descriptive_date="NOV 02",
                     effective_date=NEXT, odfi_routing=FEB)
     b.add_entry("22", SSB, "1000234567", 2_150_75, "EMP-0001", "JANE Q PUBLIC")
@@ -47,20 +47,20 @@ def ppd_payroll():
 
 def ccd_vendor_debits():
     f = outbound_file(10, "B")
-    b = f.add_batch(company_name="GLOBEX DIST INC", company_id="1987654321", sec_code="CCD",
+    b = f.add_batch(company_name="SAMPLE DIST INC", company_id="1987654321", sec_code="CCD",
                     entry_description="INVOICES", effective_date=NEXT, odfi_routing=FEB)
-    b.add_entry("27", SSB, "2000188800", 12_500_00, "CUST-NW-0042", "NORTHWIND SUPPLY LLC",
+    b.add_entry("27", SSB, "2000188800", 12_500_00, "CUST-ES-0042", "EXAMPLE SUPPLY LLC",
                 addenda_info="RMR*IV*INV-10023*12500.00\\")
-    b.add_entry("27", SSB, "2000199900", 4_380_25, "CUST-BH-0007", "BLUE HERON DESIGN INC",
+    b.add_entry("27", SSB, "2000199900", 4_380_25, "CUST-SD-0007", "SAMPLE DESIGN INC",
                 addenda_info="RMR*IV*INV-10031*4380.25\\")                       # -> R29
-    b.add_entry("27", TDCU, "55600001", 31_000_00, "CUST-CF-0110", "COASTAL FREIGHT CO",
+    b.add_entry("27", TDCU, "55600001", 31_000_00, "CUST-DF-0110", "DEMO FREIGHT CO",
                 addenda_info="RMR*IV*INV-10044*31000.00\\")
     return f
 
 
 def web_consumer_debits():
     f = outbound_file(15, "C")
-    b = f.add_batch(company_name="STREAMLY MEDIA", company_id="9876500001", sec_code="WEB",
+    b = f.add_batch(company_name="SAMPLE MEDIA", company_id="9876500001", sec_code="WEB",
                     entry_description="SUBSCRIPT", effective_date=NEXT, odfi_routing=FEB)
     b.add_entry("27", SSB, "1000234567", 14_99, "SUB-778812", "JANE Q PUBLIC", "R")
     b.add_entry("27", SSB, "3000400401", 89_99, "SUB-778813", "SAM RIVERA", "S")    # -> R01
@@ -71,7 +71,7 @@ def web_consumer_debits():
 
 def same_day_credits():
     f = outbound_file(20, "D")
-    b = f.add_batch(company_name="ACME PAYROLL CO", company_id="1234567890", sec_code="PPD",
+    b = f.add_batch(company_name="DEMO PAYROLL CO", company_id="1234567890", sec_code="PPD",
                     entry_description="BONUS", descriptive_date="SD1300",
                     effective_date=TODAY, odfi_routing=FEB)
     b.add_entry("22", SSB, "1000234567", 500_00, "EMP-0001", "JANE Q PUBLIC")
@@ -84,13 +84,13 @@ def inbound_payroll_to_feb():
     f = nacha.AchFile(immediate_destination=OPERATOR_ROUTING, immediate_origin=TDCU,
                       destination_name=OPERATOR_NAME, origin_name="THIRD DEMO CREDIT UNION",
                       created=DAY.replace(hour=7, minute=45), file_id_modifier="A")
-    b = f.add_batch(company_name="HARBORVIEW CLINIC", company_id="3456789012",
+    b = f.add_batch(company_name="EXAMPLE CLINIC", company_id="3456789012",
                     sec_code="PPD", entry_description="PAYROLL", effective_date=NEXT,
                     odfi_routing=TDCU)
-    b.add_entry("22", FEB, "70001111", 3_250_00, "HV-201", "KIM NGUYEN")
-    b.add_entry("22", FEB, "70002222", 2_875_50, "HV-202", "LUIS ORTEGA")
-    b.add_entry("22", FEB, "70009999", 1_990_00, "HV-203", "TERRY WALSH")  # no such acct
-    b2 = f.add_batch(company_name="HARBORVIEW CLINIC", company_id="3456789012",
+    b.add_entry("22", FEB, "70001111", 3_250_00, "EC-201", "KIM NGUYEN")
+    b.add_entry("22", FEB, "70002222", 2_875_50, "EC-202", "LUIS ORTEGA")
+    b.add_entry("22", FEB, "70009999", 1_990_00, "EC-203", "TERRY WALSH")  # no such acct
+    b2 = f.add_batch(company_name="EXAMPLE CLINIC", company_id="3456789012",
                      sec_code="CCD", entry_description="RENT", effective_date=NEXT,
                      odfi_routing=TDCU)
     b2.add_entry("27", FEB, "70005000", 8_400_00, "LEASE-17", "BAYSIDE PROPERTIES",
@@ -110,9 +110,9 @@ def bad_hash(text: str) -> str:
 
 def over_limit_same_day():
     f = outbound_file(25, "E")
-    b = f.add_batch(company_name="ACME HOLDINGS", company_id="1234567899", sec_code="CCD",
-                    entry_description="TREASURY", effective_date=TODAY, odfi_routing=FEB)
-    b.add_entry("22", TDCU, "55600001", 1_250_000_00, "TRSY-01", "COASTAL FREIGHT CO")
+    b = f.add_batch(company_name="DEMO HOLDINGS", company_id="1234567899", sec_code="CCD",
+                    entry_description="CASH SWEEP", effective_date=TODAY, odfi_routing=FEB)
+    b.add_entry("22", TDCU, "55600001", 1_250_000_00, "SWEEP-01", "DEMO FREIGHT CO")
     return f
 
 
